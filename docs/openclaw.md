@@ -35,8 +35,20 @@ python -m vexdb_active_memory.cli mcp-config \
   --command ~/.openclaw/credentials/vexdb-memory-mcp.sh
 ```
 
-Paste the generated `mcpServers` JSON into the OpenClaw MCP config location
-supported by the installed OpenClaw version.
+OpenClaw can also be configured with its CLI:
+
+```bash
+PYTHONPATH=/path/to/vexdb-active-memory/python \
+python -m vexdb_active_memory.cli openclaw-install-command \
+  --command ~/.openclaw/credentials/vexdb-memory-mcp.sh
+```
+
+Run the printed commands. They use this shape:
+
+```bash
+openclaw mcp set vexdb-active-memory '{"type":"stdio","command":"~/.openclaw/credentials/vexdb-memory-mcp.sh","args":[]}'
+systemctl --user restart openclaw-gateway
+```
 
 ## 4. Verify Without OpenClaw
 
@@ -51,3 +63,29 @@ printf '%s\n' \
 
 If this works but OpenClaw does not show the tools, the problem is OpenClaw's
 MCP config loading path, not VexDB Active Memory.
+
+The built-in smoke check prints the same MCP tool names and their OpenClaw
+aliases:
+
+```bash
+PYTHONPATH=/path/to/vexdb-active-memory/python \
+python -m vexdb_active_memory.cli mcp-smoke
+```
+
+Expected MCP tools:
+
+- `vexdb_memory_status`
+- `vexdb_memory_add`
+- `vexdb_memory_search`
+
+OpenClaw exposes them with the MCP server prefix:
+
+- `vexdb-active-memory__vexdb_memory_status`
+- `vexdb-active-memory__vexdb_memory_add`
+- `vexdb-active-memory__vexdb_memory_search`
+
+If those names appear in OpenClaw's tool list but the agent responds with an
+incomplete-message or session-level error instead of calling the tool, verify
+VexDB Active Memory with `mcp-smoke` and `smoke-test` first. That failure mode is
+usually in the OpenClaw agent/session layer, while the MCP server is already
+loaded correctly.

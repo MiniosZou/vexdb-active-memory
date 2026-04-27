@@ -16,7 +16,8 @@ python -m vexdb_active_memory.mcp_server
 ## Generate Config
 
 For OpenClaw, Hermes, Claude-compatible clients, or any MCP client that accepts
-the common `.mcp.json` shape, generate JSON instead of hand-writing it:
+the common `.mcp.json` shape, generate JSON instead of hand-writing it. The
+generated server entry includes `"type": "stdio"` by default for OpenClaw:
 
 ```bash
 PYTHONPATH=python python -m vexdb_active_memory.cli mcp-config \
@@ -40,6 +41,18 @@ Then generate a config using that wrapper:
 PYTHONPATH=python python -m vexdb_active_memory.cli mcp-config \
   --command /tmp/vexdb-memory-mcp.sh
 ```
+
+For legacy clients that reject a `type` field, add `--type none`.
+
+## Local MCP Smoke Check
+
+Verify protocol negotiation and tool names without starting an MCP client:
+
+```bash
+PYTHONPATH=python python -m vexdb_active_memory.cli mcp-smoke
+```
+
+The output includes the raw MCP tool names and the OpenClaw-prefixed names.
 
 ## Hermes Example
 

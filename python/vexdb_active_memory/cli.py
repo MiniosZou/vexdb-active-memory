@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
 import stat
 from pathlib import Path
 from typing import Any
@@ -34,6 +35,7 @@ def build_mcp_config(
     env_file: str | None = None,
     dsn: str | None = None,
     embedding_provider: str | None = None,
+    server_type: str | None = "stdio",
 ) -> dict[str, Any]:
     env: dict[str, str] = {}
     if pythonpath:
@@ -52,6 +54,8 @@ def build_mcp_config(
             "command": _default_python(),
             "args": ["-m", "vexdb_active_memory.mcp_server"],
         }
+    if server_type:
+        server["type"] = server_type
     if env:
         server["env"] = env
     return {"mcpServers": {"vexdb-active-memory": server}}
@@ -64,9 +68,48 @@ def cmd_mcp_config(args: argparse.Namespace) -> int:
         env_file=args.env_file,
         dsn=args.dsn,
         embedding_provider=args.embedding_provider,
+        server_type=None if args.type == "none" else args.type,
     )
     print(json.dumps(config, ensure_ascii=False, indent=2))
     return 0
+
+
+def _server_entry_for_command(command: str) -> dict[str, Any]:
+    return build_mcp_config(command=command)["mcpServers"]["vexdb-active-memory"]
+
+
+def cmd_openclaw_install_command(args: argparse.Namespace) -> int:
+    server = _server_entry_for_command(args.command)
+    json_value = json.dumps(server, ensure_ascii=False, separators=(",", ":"))
+    print(f"openclaw mcp set {shlex.quote(args.name)} {shlex.quote(json_value)}")
+    if args.restart:
+        print("systemctl --user restart openclaw-gateway")
+    return 0
+
+
+def cmd_mcp_smoke(args: argparse.Namespace) -> int:
+    from .mcp_server import _handle_request
+
+    initialize = _handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {"protocolVersion": args.protocol_version},
+        }
+    )
+    tools_response = _handle_request({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
+    tools = tools_response["result"]["tools"] if tools_response else []
+    tool_names = [tool["name"] for tool in tools]
+    payload = {
+        "ok": bool(initialize and tools),
+        "server": initialize["result"]["serverInfo"] if initialize else None,
+        "protocol_version": initialize["result"]["protocolVersion"] if initialize else None,
+        "tools": tool_names,
+        "openclaw_tool_names": [f"{args.openclaw_server_name}__{name}" for name in tool_names],
+    }
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0 if payload["ok"] else 1
 
 
 def cmd_write_wrapper(args: argparse.Namespace) -> int:
@@ -184,7 +227,29 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--env-file", help="env file path consumed by wrapper scripts")
     p.add_argument("--dsn", help="optional VEXDB_DSN to include directly in JSON")
     p.add_argument("--embedding-provider", help="optional embedding provider to include in JSON")
+    p.add_argument(
+        "--type",
+        default="stdio",
+        choices=["stdio", "none"],
+        help="server type field to emit; OpenClaw expects stdio",
+    )
     p.set_defaults(func=cmd_mcp_config)
+
+    p = sub.add_parser("openclaw-install-command", help="print OpenClaw MCP install commands")
+    p.add_argument("--command", required=True, help="absolute wrapper path used by OpenClaw")
+    p.add_argument("--name", default="vexdb-active-memory", help="OpenClaw MCP server name")
+    p.add_argument(
+        "--restart",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="also print the OpenClaw gateway restart command",
+    )
+    p.set_defaults(func=cmd_openclaw_install_command)
+
+    p = sub.add_parser("mcp-smoke", help="verify the built-in MCP protocol and list tool names")
+    p.add_argument("--protocol-version", default="2025-11-25")
+    p.add_argument("--openclaw-server-name", default="vexdb-active-memory")
+    p.set_defaults(func=cmd_mcp_smoke)
 
     p = sub.add_parser("write-wrapper", help="write an executable MCP wrapper script")
     p.add_argument("--path", required=True, help="target wrapper path")

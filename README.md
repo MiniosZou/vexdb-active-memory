@@ -101,3 +101,16 @@ PYTHONPATH=python python -m vexdb_active_memory.cli write-wrapper \
   --path /tmp/vexdb-memory-mcp.sh \
   --pythonpath "$PWD/python"
 ```
+
+Verify MCP tool exposure without an agent runtime:
+
+```bash
+PYTHONPATH=python python -m vexdb_active_memory.cli mcp-smoke
+```
+
+For OpenClaw, generate the exact install commands:
+
+```bash
+PYTHONPATH=python python -m vexdb_active_memory.cli openclaw-install-command \
+  --command /tmp/vexdb-memory-mcp.sh
+```

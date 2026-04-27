@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ENV_FILE="${VEXDB_ACTIVE_MEMORY_ENV:-/home/test/.openclaw/credentials/vexdb-active-memory.env}"
+DEFAULT_ENV_FILE="${HOME}/.openclaw/credentials/vexdb-active-memory.env"
+ENV_FILE="${VEXDB_ACTIVE_MEMORY_ENV:-$DEFAULT_ENV_FILE}"
 if [[ -f "$ENV_FILE" ]]; then
   set -a
   # shellcheck disable=SC1090
