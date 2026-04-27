@@ -20,6 +20,8 @@ Verified:
 - Exact duplicate `add()` returns the same canonical UUID and does not create another active row.
 - Duplicate merge increments `duplicate_count` and `access_count`.
 - MCP initialize, `tools/list`, `vexdb_memory_add`, and `vexdb_memory_search` work.
+- CLI `smoke-test` works against the local VexDB deployment with mock embeddings.
+- CLI `mcp-config` and `write-wrapper` generate usable MCP client setup artifacts.
 
 Notes:
 

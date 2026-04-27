@@ -19,16 +19,19 @@ export DASHSCOPE_API_KEY='...'
 ## 2. Apply SQL
 
 ```bash
-psql "$VEXDB_DSN" -f sql/001_schema.sql
-psql "$VEXDB_DSN" -f sql/002_functions.sql
-psql "$VEXDB_DSN" -f sql/003_triggers.sql
-psql "$VEXDB_DSN" -f sql/004_indexes.sql
+PYTHONPATH=python python -m vexdb_active_memory.cli bootstrap --grant-to vexdb
 ```
 
-If the VexDB deployment uses `vsql`, replace `psql` with `vsql` and pass the
-same database connection details.
+If the application user does not have schema creation privileges, run
+`bootstrap` with an admin DSN, then use `--grant-to <app_role>`.
 
-## 3. Add and Search
+## 3. Smoke Test
+
+```bash
+PYTHONPATH=python python -m vexdb_active_memory.cli smoke-test
+```
+
+## 4. Add and Search
 
 ```bash
 PYTHONPATH=python python - <<'PY'
@@ -56,7 +59,7 @@ finally:
 PY
 ```
 
-## 4. Start MCP
+## 5. Start MCP
 
 ```bash
 PYTHONPATH=python python -m vexdb_active_memory.mcp_server
@@ -67,3 +70,11 @@ The MCP server exposes:
 - `vexdb_memory_status`
 - `vexdb_memory_add`
 - `vexdb_memory_search`
+
+Generate MCP JSON instead of writing it by hand:
+
+```bash
+PYTHONPATH=python python -m vexdb_active_memory.cli mcp-config \
+  --pythonpath "$PWD/python" \
+  --embedding-provider mock
+```

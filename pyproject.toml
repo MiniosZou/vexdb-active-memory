@@ -21,6 +21,7 @@ dev = [
 ]
 
 [project.scripts]
+vexdb-memory = "vexdb_active_memory.cli:main"
 vexdb-memory-mcp = "vexdb_active_memory.mcp_server:main"
 
 [tool.hatch.build.targets.wheel]
@@ -29,4 +30,3 @@ packages = ["python/vexdb_active_memory"]
 [tool.pytest.ini_options]
 pythonpath = ["python"]
 testpaths = ["tests"]
-

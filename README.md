@@ -27,16 +27,26 @@ docs/                        Design and API notes
 
 ## Quick Start
 
-1. Apply the SQL files to a VexDB database:
+1. Set environment variables:
 
 ```bash
-psql "$VEXDB_DSN" -f sql/001_schema.sql
-psql "$VEXDB_DSN" -f sql/002_functions.sql
-psql "$VEXDB_DSN" -f sql/003_triggers.sql
-psql "$VEXDB_DSN" -f sql/004_indexes.sql
+export VEXDB_DSN='postgresql://vexdb:<url-encoded-password>@127.0.0.1:5432/vastbase'
+export VEXDB_MEMORY_EMBEDDING_PROVIDER=mock
 ```
 
-2. Use the SDK:
+2. Apply the SQL files:
+
+```bash
+PYTHONPATH=python python -m vexdb_active_memory.cli bootstrap --grant-to vexdb
+```
+
+3. Run a smoke test:
+
+```bash
+PYTHONPATH=python python -m vexdb_active_memory.cli smoke-test
+```
+
+4. Use the SDK:
 
 ```python
 from vexdb_active_memory import ActiveMemoryClient
@@ -73,3 +83,21 @@ VEXDB_MEMORY_EMBEDDING_PROVIDER=mock
 ```
 
 URL-encode special characters in the password. For example, `@` becomes `%40`.
+
+## MCP Setup Helper
+
+Generate a ready-to-paste MCP config:
+
+```bash
+PYTHONPATH=python python -m vexdb_active_memory.cli mcp-config \
+  --pythonpath "$PWD/python" \
+  --embedding-provider mock
+```
+
+Write an executable wrapper script:
+
+```bash
+PYTHONPATH=python python -m vexdb_active_memory.cli write-wrapper \
+  --path /tmp/vexdb-memory-mcp.sh \
+  --pythonpath "$PWD/python"
+```
