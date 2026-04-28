@@ -1,0 +1,4 @@
+interface:
+  display_name: "VexDB Active Memory"
+  short_description: "Work with VexDB database-native active memory."
+  default_prompt: "Use VexDB Active Memory to design, validate, and integrate database-native memory for agents."

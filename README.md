@@ -2,219 +2,97 @@
 
 Database-native active memory for AI agents and applications, built on VexDB.
 
-VexDB Active Memory is an independent memory framework. It does not depend on
-MemPalace, Hermes, LangChain, LlamaIndex, or any other memory runtime. Those
-systems can connect through adapters, but the core memory behavior lives in
-VexDB SQL plus this SDK.
+VexDB Active Memory turns VexDB from a passive vector store into an active
+memory layer. The core memory behavior lives in VexDB SQL plus this SDK: write
+time semantic upsert, conflict auditing, lifecycle decay, vector retrieval, and
+MCP access for agent runtimes.
 
-## SMART Goals
+## English
 
-The current MVP target is to make VexDB usable as a standalone active-memory
-framework for OpenClaw, Hermes, and other MCP clients by 2026-05-31.
+### Background
 
-- Specific: provide database-native semantic upsert, conflict resolution,
-  lifecycle decay, SDK access, and stdio MCP access without depending on any
-  external memory framework.
-- Measurable: pass the 10-point feasibility score in `docs/test-specs.zh.md`
-  with at least 9 points, expose 5 MCP tools, and pass VexDB-backed
-  `smoke-test` plus `conflict-decay-test`.
-- Achievable: keep the required stack to VexDB-compatible SQL, Python SDK,
-  psycopg2, and optional embedding providers; HNSW and PL/Python are
-  progressive enhancements with safe fallbacks.
-- Relevant: reduce duplicate or stale agent memory by moving deduplication,
-  conflict auditing, and lifecycle policy into the database core.
-- Time-bound: v0.1 covers the current MCP/SDK MVP, v0.2 closes real database
-  conflict/decay verification, and v1.0 adds production SLOs and managed LLM
-  adjudication gates.
+AI agents need more than retrieval. They need memory that can decide whether a
+new fact is duplicate, complementary, conflicting, stale, or worth keeping.
+Most memory frameworks implement that logic in Python middleware above a vector
+database. That works for prototypes, but it makes consistency, concurrency,
+auditing, and cost control harder once multiple agents write to the same memory
+space.
 
-See `docs/roadmap.zh.md` for scope, milestones, risk handling, and the RACI
-ownership matrix.
+VexDB Active Memory takes a database-native approach: VexDB stores vectors and
+also owns the memory lifecycle rules. The result is a standalone memory
+framework that can be used by OpenClaw, Hermes, or any MCP client without
+depending on Mem0, MemPalace, LangChain, LlamaIndex, or another memory runtime.
 
-## Core Ideas
+### Why VexDB
 
-- Semantic deduplication at write time.
-- Transaction-safe concurrent writes.
-- Vector, metadata, time, and lifecycle aware retrieval.
-- Version history and event audit trail.
-- Optional MCP surface on top of the same database core; REST can be added as
-  a thin adapter later without changing the core memory tables/functions.
+VexDB is a PostgreSQL/openGauss-compatible vector database. This project uses
+that foundation for:
 
-## 中文说明
+- SQL-native tables, functions, triggers, indexes, permissions, and transactions.
+- `floatvector(1024)` vector storage and cosine-distance search with `<=>`.
+- HNSW vector index attempts when supported, with exact-search fallback.
+- ACID transactions and advisory locks for multi-agent write safety.
+- Optional PL/Python hooks when the target VexDB edition allows them.
+- Standard PostgreSQL protocol access from Python, tools, containers, and agent
+  runtimes.
 
-VexDB Active Memory 是一个独立的、数据库原生的智能记忆框架。它的核心目标不是把外部记忆框架接到 VexDB 上，而是让 VexDB 自己成为记忆体的持久化、检索、去重、审计和生命周期管理核心。
+### Core Capabilities
 
-当前项目已经包含：
+- **Database-native semantic upsert**: `active_memory.upsert_memory(...)`
+  performs exact hash deduplication, vector-near deduplication, conflict
+  queueing, and insert decisions inside the database transaction.
+- **Conflict resolution**: `active_memory.resolve_conflict(...)` applies a
+  reviewer, policy, or LLM decision: `update`, `append`, or `reject`.
+- **Forgetting curve**: `active_memory.apply_decay(...)` archives stale,
+  low-importance memories and can later mark archived memories as deleted.
+- **Multi-agent concurrency control**: transaction-scoped advisory locks and
+  database updates reduce dirty writes when several agents write concurrently.
+- **Auditability**: `memory_events`, `memory_versions`, and `conflict_queue`
+  preserve what changed, why it changed, and who made the decision.
+- **MCP integration**: the stdio MCP server exposes 5 tools for status, add,
+  search, conflict resolution, and decay.
 
-- VexDB SQL schema、函数、触发器和索引。
-- Python SDK，用于写入记忆、语义检索、数据库原生 UPSERT、冲突裁决和遗忘策略。
-- 独立 stdio MCP Server，可被 OpenClaw、Hermes 或其他 MCP 客户端接入。
-- CLI 工具，用于初始化数据库、生成 MCP 配置、写 wrapper、执行 smoke test。
-- OpenClaw/Hermes 接入文档和本地验证规格。
+### SMART MVP Goals
 
-安装依赖：
+The v0.1 MVP target is to make VexDB usable as a standalone active-memory
+framework by 2026-05-31.
 
-```bash
-python -m pip install -e .
-```
+- Pass the 10-point feasibility score in `docs/test-specs.zh.md` with at least
+  9 points.
+- Expose 5 MCP tools: `status`, `add`, `search`, `resolve_conflict`, and
+  `apply_decay`.
+- Pass real VexDB-backed `smoke-test` and `conflict-decay-test`.
+- Keep HNSW and PL/Python as progressive enhancements, not hard blockers.
+- Keep REST, web UI, schedulers, and managed LLM adjudication outside v0.1
+  unless they are built as separate thin adapters.
 
-如果只在源码目录中临时运行，也可以使用 `PYTHONPATH=python`。数据库连接需要 `psycopg2-binary`，HTTP embedding provider 需要 `httpx`，这两个依赖已经写入 `pyproject.toml`。
+See `docs/roadmap.zh.md` for milestones, scope boundaries, RACI, and risk
+handling.
 
-准备 VexDB：
-
-- 本地需要已经运行 VexDB，并能通过 PostgreSQL 协议连接。
-- 初始化 schema 通常需要管理员 DSN 或有建 schema 权限的用户。
-- 运行时应用用户只需要 `active_memory` schema 下的读写和函数执行权限。
-- 密码里有 `@`、`:`、`/` 等字符时，必须在 DSN 里 URL encode，例如 `@` 写成 `%40`。
-
-设计边界：
-
-- 不依赖 MemPalace、LangChain、LlamaIndex 或其他记忆体框架。
-- 这些系统可以通过 MCP 或适配器连接进来，但记忆能力本身由 VexDB + 本项目代码提供。
-- 密钥和 DSN 不写入仓库，推荐放在本机 env 文件或进程环境变量中。
-
-## 中文快速开始
-
-1. 设置数据库连接和 embedding provider：
+### Quick Start
 
 ```bash
+python -m pip install -e .[dev]
 export VEXDB_DSN='postgresql://vexdb:<url-encoded-password>@127.0.0.1:5432/vastbase'
 export VEXDB_MEMORY_EMBEDDING_PROVIDER=mock
 ```
 
-本地测试可以先用 `mock`，上线时再切换到 DashScope 等真实 embedding 服务。
-
-推荐把本机 OpenClaw/Hermes 使用的环境变量放进 env 文件，不要写进 Git：
-
-```bash
-mkdir -p ~/.openclaw/credentials
-chmod 700 ~/.openclaw/credentials
-cat > ~/.openclaw/credentials/vexdb-active-memory.env <<'EOF'
-VEXDB_DSN=postgresql://vexdb:<url-encoded-password>@127.0.0.1:5432/vastbase
-VEXDB_MEMORY_EMBEDDING_PROVIDER=mock
-VEXDB_MEMORY_EMBEDDING_DIMENSIONS=1024
-EOF
-chmod 600 ~/.openclaw/credentials/vexdb-active-memory.env
-```
-
-2. 初始化 VexDB 表结构：
+Apply SQL with an admin-capable database account, then grant runtime privileges
+to the application role:
 
 ```bash
 PYTHONPATH=python python -m vexdb_active_memory.cli bootstrap --grant-to vexdb
 ```
 
-3. 写入并检索一条测试记忆：
-
-```bash
-PYTHONPATH=python python -m vexdb_active_memory.cli smoke-test \
-  --namespace demo \
-  --scope local \
-  --memory-type fact
-```
-
-4. 验证 MCP 工具是否暴露：
+Run smoke checks:
 
 ```bash
 PYTHONPATH=python python -m vexdb_active_memory.cli mcp-smoke
-```
-
-应看到 5 个工具：
-
-- `vexdb_memory_status`
-- `vexdb_memory_add`
-- `vexdb_memory_search`
-- `vexdb_memory_resolve_conflict`
-- `vexdb_memory_apply_decay`
-
-5. 接入 OpenClaw：
-
-```bash
-PYTHONPATH=python python -m vexdb_active_memory.cli openclaw-install-command \
-  --command /mnt/d/codex/vexdb-active-memory/scripts/openclaw-vexdb-memory-mcp.sh
-```
-
-OpenClaw 中工具名会带 MCP server 前缀，例如：
-
-- `vexdb-active-memory__vexdb_memory_add`
-- `vexdb-active-memory__vexdb_memory_search`
-- `vexdb-active-memory__vexdb_memory_status`
-- `vexdb-active-memory__vexdb_memory_resolve_conflict`
-- `vexdb-active-memory__vexdb_memory_apply_decay`
-
-6. 接入 Hermes：
-
-```bash
-PYTHONPATH=python python -m vexdb_active_memory.cli hermes-install-command \
-  --command /mnt/d/codex/vexdb-active-memory/scripts/openclaw-vexdb-memory-mcp.sh \
-  --env-file ~/.hermes/credentials/vexdb-active-memory.env
-```
-
-然后执行：
-
-```bash
-hermes mcp test vexdb-active-memory
-```
-
-## 中文测试规格
-
-详细可行性测试规格见 [docs/test-specs.zh.md](docs/test-specs.zh.md)。
-
-当前本机验证结论：
-
-- OpenClaw 能加载 `vexdb-active-memory` MCP server。
-- Hermes `mcp test vexdb-active-memory` 能连接并发现 5 个工具。
-- MCP `status` 能确认数据库、`active_memory` schema 和核心表可用。
-- MCP `add/search` 已验证可以写入并检索中文记忆。
-- SQL 层提供 `active_memory.upsert_memory`、`active_memory.resolve_conflict` 和 `active_memory.apply_decay`，用于数据库原生写入、冲突裁决和遗忘归档。
-- SQL 层会渐进尝试 HNSW 索引和可选 PL/Python 冲突 hint；环境不支持时不会阻断核心记忆功能。
-- 本机实测目标评分：9.1/10。换到新机器时，应按 [docs/test-specs.zh.md](docs/test-specs.zh.md) 重新跑验收命令。
-
-## 中文故障分流
-
-| 现象 | 先跑哪个命令 | 判断 |
-| --- | --- | --- |
-| 不确定 MCP server 是否正常 | `PYTHONPATH=python python -m vexdb_active_memory.cli mcp-smoke` | 能看到 5 个工具说明 MCP 协议层正常 |
-| 不确定数据库是否可写可搜 | `PYTHONPATH=python python -m vexdb_active_memory.cli smoke-test` | `ok: true` 说明 SDK 入库检索闭环正常 |
-| OpenClaw 找不到工具 | `openclaw mcp show` | 应存在 `vexdb-active-memory`，且 `type` 为 `stdio` |
-| Hermes 找不到工具 | `hermes mcp test vexdb-active-memory` | 应显示 connected，并发现 5 个工具 |
-| agent 不主动调用工具 | 先跑 `mcp-smoke` 和 `hermes mcp test` | 如果都通过，这是 agent 工具选择行为，不是本项目 MCP 连接失败 |
-| status 显示 degraded | 直接调用 `vexdb_memory_status` | 看 `database.error`，常见原因是 DSN、数据库权限、Python 环境缺驱动 |
-| DashScope embedding 失败 | 临时改成 `VEXDB_MEMORY_EMBEDDING_PROVIDER=mock` | 如果 mock 能跑，说明数据库链路正常，问题在 embedding 服务或网络 |
-
-OpenClaw/Hermes 多数运行在 WSL 中。Windows 路径 `D:\codex\vexdb-active-memory` 在 WSL 中通常写作 `/mnt/d/codex/vexdb-active-memory`。
-`scripts/openclaw-vexdb-memory-mcp.sh` 会优先使用 Hermes venv Python，这是为了复用本机已经验证过的数据库驱动环境；需要指定其他 Python 时设置 `VEXDB_ACTIVE_MEMORY_PYTHON=/path/to/python`。
-
-## Repository Layout
-
-```text
-sql/                         VexDB schema, functions, triggers, indexes
-python/vexdb_active_memory/  Python SDK
-python/vexdb_active_memory/mcp_server.py  Standalone MCP server
-tests/                       Unit and integration tests
-docs/                        Design and API notes
-```
-
-## Quick Start
-
-1. Set environment variables:
-
-```bash
-export VEXDB_DSN='postgresql://vexdb:<url-encoded-password>@127.0.0.1:5432/vastbase'
-export VEXDB_MEMORY_EMBEDDING_PROVIDER=mock
-```
-
-2. Apply the SQL files:
-
-```bash
-PYTHONPATH=python python -m vexdb_active_memory.cli bootstrap --grant-to vexdb
-```
-
-3. Run a smoke test:
-
-```bash
 PYTHONPATH=python python -m vexdb_active_memory.cli smoke-test
+PYTHONPATH=python python -m vexdb_active_memory.cli conflict-decay-test
 ```
 
-4. Use the SDK:
+Use the SDK:
 
 ```python
 from vexdb_active_memory import ActiveMemoryClient
@@ -234,27 +112,15 @@ matches = client.search(
 )
 ```
 
-## Environment
+### MCP Tools
 
-```text
-VEXDB_DSN=postgresql://vexdb:<url-encoded-password>@localhost:5432/vastbase
-DASHSCOPE_API_KEY=...
-VEXDB_MEMORY_EMBEDDING_PROVIDER=dashscope
-VEXDB_MEMORY_EMBEDDING_MODEL=text-embedding-v3
-VEXDB_MEMORY_EMBEDDING_DIMENSIONS=1024
-```
+- `vexdb_memory_status`
+- `vexdb_memory_add`
+- `vexdb_memory_search`
+- `vexdb_memory_resolve_conflict`
+- `vexdb_memory_apply_decay`
 
-For tests and local development without an embedding service, use:
-
-```text
-VEXDB_MEMORY_EMBEDDING_PROVIDER=mock
-```
-
-URL-encode special characters in the password. For example, `@` becomes `%40`.
-
-## MCP Setup Helper
-
-Generate a ready-to-paste MCP config:
+Generate MCP configuration:
 
 ```bash
 PYTHONPATH=python python -m vexdb_active_memory.cli mcp-config \
@@ -262,30 +128,159 @@ PYTHONPATH=python python -m vexdb_active_memory.cli mcp-config \
   --embedding-provider mock
 ```
 
-Write an executable wrapper script:
-
-```bash
-PYTHONPATH=python python -m vexdb_active_memory.cli write-wrapper \
-  --path /tmp/vexdb-memory-mcp.sh \
-  --pythonpath "$PWD/python"
-```
-
-Verify MCP tool exposure without an agent runtime:
-
-```bash
-PYTHONPATH=python python -m vexdb_active_memory.cli mcp-smoke
-```
-
-For OpenClaw, generate the exact install commands:
+Generate OpenClaw or Hermes setup commands:
 
 ```bash
 PYTHONPATH=python python -m vexdb_active_memory.cli openclaw-install-command \
-  --command /tmp/vexdb-memory-mcp.sh
+  --command /path/to/vexdb-memory-mcp.sh
+
+PYTHONPATH=python python -m vexdb_active_memory.cli hermes-install-command \
+  --command /path/to/vexdb-memory-mcp.sh
 ```
 
-For Hermes, generate the install and verification commands:
+### Positioning
+
+Suggested headline:
+
+> VexDB Active Memory: one database for vectors, memory, conflict control, and
+> lifecycle management.
+
+Suggested short pitch:
+
+> Stop treating memory as Python middleware glued onto a vector store. VexDB
+> Active Memory moves semantic upsert, conflict resolution, audit history, and
+> forgetting policy into the database transaction layer, giving agents a
+> consistent memory core that speaks SQL, SDK, and MCP.
+
+### Project Layout
+
+```text
+sql/                         VexDB schema, functions, triggers, indexes
+python/vexdb_active_memory/  Python SDK, CLI, and MCP server
+docs/                        Architecture, roadmap, integration, verification
+skills/                      Reusable Codex skill package
+tests/                       Unit, contract, and integration tests
+```
+
+## 中文
+
+### 项目背景
+
+智能体需要的不只是“向量检索”，而是可管理的长期记忆。一个成熟的记忆系统要能判断新信息是重复、补充、冲突、过期，还是应该被保留。很多记忆框架把这些逻辑放在 Python 中间层里，再连接一个向量数据库。原型阶段可以这么做，但一旦进入多智能体并发写入、审计追踪、成本控制和生产运维，这种架构会变得脆弱。
+
+VexDB Active Memory 的方向是数据库原生智能：让 VexDB 不只存向量，也负责记忆的写入决策、冲突裁决、生命周期管理和审计记录。OpenClaw、Hermes 或其他 MCP 客户端都可以接入，但核心记忆能力不依赖 Mem0、MemPalace、LangChain、LlamaIndex 等外部记忆框架。
+
+### 为什么基于 VexDB
+
+VexDB 是兼容 PostgreSQL/openGauss 生态的向量数据库，本项目利用它的数据库能力来构建记忆框架：
+
+- SQL 原生 schema、函数、触发器、索引、权限和事务。
+- `floatvector(1024)` 向量列，以及 `<=>` 余弦距离检索。
+- 支持 HNSW 时自动尝试向量索引，不支持时回退到精确向量排序。
+- 用 ACID 事务和 advisory lock 处理多智能体并发写入。
+- 在支持的版本上可接入 PL/Python hook，不支持也不阻断核心能力。
+- 通过 PostgreSQL 协议被 SDK、CLI、容器和 Agent 运行时直接访问。
+
+### 核心能力
+
+- **语义级 UPSERT**：`active_memory.upsert_memory(...)` 在数据库事务内完成精确去重、向量近邻去重、冲突入队和新增写入。
+- **LLM/人工冲突裁决**：`active_memory.resolve_conflict(...)` 接收 `update`、`append`、`reject` 三类决策，并原子化执行。
+- **自动遗忘曲线**：`active_memory.apply_decay(...)` 归档低重要度、长期未访问的记忆，也支持后续软删除。
+- **多智能体并发控制**：利用数据库事务和 advisory lock，减少多 Agent 写入同一记忆空间时的数据脏乱。
+- **审计与版本历史**：通过 `memory_events`、`memory_versions`、`conflict_queue` 记录每次变化、原因和操作者。
+- **MCP 工具化接入**：提供 stdio MCP Server，暴露状态检查、写入、检索、冲突裁决和遗忘归档 5 个工具。
+
+### SMART 目标
+
+v0.1 MVP 的目标是在 2026-05-31 前，让 VexDB 可以作为独立的主动记忆框架使用。
+
+- 可行性评分达到 `docs/test-specs.zh.md` 中定义的 9/10 以上。
+- MCP 暴露 5 个工具：状态、写入、检索、冲突裁决、遗忘归档。
+- 真实 VexDB 上通过 `smoke-test` 和 `conflict-decay-test`。
+- HNSW 和 PL/Python 作为渐进增强，不作为基础能力阻断项。
+- REST、Web UI、后台调度器、托管 LLM 裁决服务不放入 v0.1，除非作为独立薄适配器推进。
+
+路线图、范围边界、责任矩阵和风险预案见 `docs/roadmap.zh.md`。
+
+### 快速开始
+
+```bash
+python -m pip install -e .[dev]
+export VEXDB_DSN='postgresql://vexdb:<url-encoded-password>@127.0.0.1:5432/vastbase'
+export VEXDB_MEMORY_EMBEDDING_PROVIDER=mock
+```
+
+初始化数据库结构。注意：这一步通常需要管理员 DSN 或容器内管理员身份，应用账号只负责运行时读写：
+
+```bash
+PYTHONPATH=python python -m vexdb_active_memory.cli bootstrap --grant-to vexdb
+```
+
+运行验收命令：
+
+```bash
+PYTHONPATH=python python -m vexdb_active_memory.cli mcp-smoke
+PYTHONPATH=python python -m vexdb_active_memory.cli smoke-test
+PYTHONPATH=python python -m vexdb_active_memory.cli conflict-decay-test
+```
+
+### OpenClaw / Hermes 接入
+
+生成 OpenClaw 安装命令：
+
+```bash
+PYTHONPATH=python python -m vexdb_active_memory.cli openclaw-install-command \
+  --command /mnt/d/codex/vexdb-active-memory/scripts/openclaw-vexdb-memory-mcp.sh
+```
+
+生成 Hermes 安装命令：
 
 ```bash
 PYTHONPATH=python python -m vexdb_active_memory.cli hermes-install-command \
-  --command /tmp/vexdb-memory-mcp.sh
+  --command /mnt/d/codex/vexdb-active-memory/scripts/openclaw-vexdb-memory-mcp.sh \
+  --env-file ~/.hermes/credentials/vexdb-active-memory.env
 ```
+
+### 宣传建议
+
+一句话：
+
+> VexDB Active Memory = 向量数据库 + 主动记忆框架，一套数据库完成存储、检索、去重、冲突裁决和遗忘管理。
+
+对研发：
+
+> 把记忆一致性从 Python 中间件下沉到数据库事务层，用 SQL 函数、触发器、向量索引和审计表实现可验证、可追踪、可并发的 Agent 记忆核心。
+
+对产品：
+
+> 从“被动存储”升级到“主动记忆管理”，减少重复记忆和垃圾记忆，让智能体长期使用后依然保持轻量、可控、可信。
+
+对商业：
+
+> 不只是一个向量库，也不是外部记忆框架的插件。VexDB 可以独立成为 Agent 记忆基础设施：一套数据库 = 向量检索 + 记忆治理 + Agent 接入。
+
+### 能否做成 Skill
+
+可以。本仓库已经包含一个可复用 Skill 包：
+
+```text
+skills/vexdb-active-memory/
+```
+
+它可以用于让 Codex/Hermes 类智能体快速理解本项目的定位、安装、验证和排障流程。安装到本机 Codex 的常见方式是复制到：
+
+```text
+~/.codex/skills/vexdb-active-memory
+```
+
+然后在新对话里提到 “VexDB Active Memory” 或 “vexdb-active-memory skill”，智能体就能按 Skill 指南工作。
+
+## More Docs
+
+- `docs/architecture.md`
+- `docs/roadmap.zh.md`
+- `docs/test-specs.zh.md`
+- `docs/verification.md`
+- `docs/openclaw.md`
+- `docs/hermes.md`
+- `docs/mcp.md`
