@@ -5,10 +5,13 @@ import json
 import os
 import shlex
 import stat
+import uuid
 from pathlib import Path
 from typing import Any
 
 from .client import ActiveMemoryClient
+from .db import vector_literal
+from .normalize import canonicalize, content_hash
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -241,6 +244,177 @@ def cmd_smoke_test(args: argparse.Namespace) -> int:
     return 0 if payload["ok"] else 1
 
 
+def cmd_conflict_decay_test(args: argparse.Namespace) -> int:
+    client = ActiveMemoryClient.from_env()
+    run_id = uuid.uuid4().hex[:12]
+    tenant_id = args.tenant_id
+    namespace = f"{args.namespace}_{run_id}" if args.unique_namespace else args.namespace
+    scope = args.scope
+    old_id = str(uuid.uuid4())
+    stale_id = str(uuid.uuid4())
+    conflict_id = str(uuid.uuid4())
+    old_content = args.old_content
+    candidate_content = args.candidate_content
+    stale_content = args.stale_content
+    old_canonical = canonicalize(old_content)
+    candidate_canonical = canonicalize(candidate_content)
+    stale_canonical = canonicalize(stale_content)
+    old_embedding, candidate_embedding, stale_embedding = client.embedding_provider.embed(
+        [old_content, candidate_content, stale_content]
+    )
+
+    try:
+        with client.pool.connection() as conn:
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        INSERT INTO active_memory.memories(
+                            id, tenant_id, namespace, scope, memory_type, content,
+                            canonical_text, content_hash, embedding, metadata,
+                            actor, importance, confidence
+                        ) VALUES (
+                            %s, %s, %s, %s, %s, %s,
+                            %s, %s, %s::floatvector, %s::jsonb,
+                            %s, %s, %s
+                        )
+                        """,
+                        (
+                            old_id,
+                            tenant_id,
+                            namespace,
+                            scope,
+                            args.memory_type,
+                            old_content,
+                            old_canonical,
+                            content_hash(old_canonical),
+                            vector_literal(old_embedding),
+                            json.dumps({"source": "conflict_decay_test", "run_id": run_id}),
+                            "vexdb-memory-cli",
+                            3,
+                            1.0,
+                        ),
+                    )
+                    cur.execute(
+                        """
+                        INSERT INTO active_memory.conflict_queue(
+                            conflict_id, old_memory_id, candidate_content,
+                            candidate_canonical_text, candidate_content_hash,
+                            candidate_embedding, candidate_metadata, distance
+                        ) VALUES (
+                            %s, %s, %s, %s, %s, %s::floatvector, %s::jsonb, %s
+                        )
+                        """,
+                        (
+                            conflict_id,
+                            old_id,
+                            candidate_content,
+                            candidate_canonical,
+                            content_hash(candidate_canonical),
+                            vector_literal(candidate_embedding),
+                            json.dumps({"source": "conflict_decay_test", "run_id": run_id}),
+                            args.conflict_distance,
+                        ),
+                    )
+                    cur.execute(
+                        """
+                        INSERT INTO active_memory.memories(
+                            id, tenant_id, namespace, scope, memory_type, content,
+                            canonical_text, content_hash, embedding, metadata,
+                            actor, importance, confidence, updated_at
+                        ) VALUES (
+                            %s, %s, %s, %s, %s, %s,
+                            %s, %s, %s::floatvector, %s::jsonb,
+                            %s, %s, %s, now() - %s::interval
+                        )
+                        """,
+                        (
+                            stale_id,
+                            tenant_id,
+                            namespace,
+                            scope,
+                            args.memory_type,
+                            stale_content,
+                            stale_canonical,
+                            content_hash(stale_canonical),
+                            vector_literal(stale_embedding),
+                            json.dumps({"source": "conflict_decay_test", "run_id": run_id}),
+                            "vexdb-memory-cli",
+                            1,
+                            1.0,
+                            args.stale_age,
+                        ),
+                    )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+
+        resolution = client.resolve_conflict(
+            conflict_id,
+            args.decision,
+            actor="vexdb-memory-cli",
+            metadata={"source": "conflict_decay_test", "run_id": run_id},
+        )
+        decay = client.apply_decay(
+            tenant_id=tenant_id,
+            namespace=namespace,
+            archive_before=args.archive_before,
+            min_access_count=0,
+        )
+
+        with client.pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT status
+                    FROM active_memory.memories
+                    WHERE id = %s
+                    """,
+                    (stale_id,),
+                )
+                stale_status = cur.fetchone()[0]
+                cur.execute(
+                    """
+                    SELECT operation, count(*)
+                    FROM active_memory.memory_events
+                    WHERE operation IN ('RESOLVE', 'ARCHIVE')
+                      AND (
+                        memory_id IN (%s, %s)
+                        OR payload->>'conflict_id' = %s
+                      )
+                    GROUP BY operation
+                    """,
+                    (old_id, stale_id, conflict_id),
+                )
+                events = {row[0]: int(row[1]) for row in cur.fetchall()}
+            conn.commit()
+    finally:
+        client.close()
+
+    expected_action = {"update": "updated", "append": "appended", "reject": "rejected"}[args.decision]
+    ok = (
+        resolution["action"] == expected_action
+        and decay["archived_count"] >= 1
+        and stale_status == "archived"
+        and events.get("RESOLVE", 0) >= 1
+        and events.get("ARCHIVE", 0) >= 1
+    )
+    payload = {
+        "ok": ok,
+        "tenant_id": tenant_id,
+        "namespace": namespace,
+        "scope": scope,
+        "conflict_id": conflict_id,
+        "resolution": resolution,
+        "decay": decay,
+        "stale_memory_status": stale_status,
+        "events": events,
+    }
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0 if ok else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="vexdb-memory")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -324,6 +498,24 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--query", default="database-native intelligent memory semantic deduplication")
     p.set_defaults(func=cmd_smoke_test)
+
+    p = sub.add_parser(
+        "conflict-decay-test",
+        help="verify conflict resolution and forgetting curve against a real VexDB database",
+    )
+    p.add_argument("--tenant-id", default="default")
+    p.add_argument("--namespace", default="conflict_decay")
+    p.add_argument("--scope", default="cli")
+    p.add_argument("--memory-type", default="fact")
+    p.add_argument("--decision", choices=["update", "append", "reject"], default="append")
+    p.add_argument("--conflict-distance", type=float, default=0.08)
+    p.add_argument("--archive-before", default="1 day")
+    p.add_argument("--stale-age", default="45 days")
+    p.add_argument("--unique-namespace", action=argparse.BooleanOptionalAction, default=True)
+    p.add_argument("--old-content", default="User prefers quiet hotels near the office.")
+    p.add_argument("--candidate-content", default="User prefers quiet hotels within walking distance of the office.")
+    p.add_argument("--stale-content", default="Temporary onboarding note that should decay after the evaluation window.")
+    p.set_defaults(func=cmd_conflict_decay_test)
 
     return parser
 

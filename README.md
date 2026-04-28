@@ -7,6 +7,29 @@ MemPalace, Hermes, LangChain, LlamaIndex, or any other memory runtime. Those
 systems can connect through adapters, but the core memory behavior lives in
 VexDB SQL plus this SDK.
 
+## SMART Goals
+
+The current MVP target is to make VexDB usable as a standalone active-memory
+framework for OpenClaw, Hermes, and other MCP clients by 2026-05-31.
+
+- Specific: provide database-native semantic upsert, conflict resolution,
+  lifecycle decay, SDK access, and stdio MCP access without depending on any
+  external memory framework.
+- Measurable: pass the 10-point feasibility score in `docs/test-specs.zh.md`
+  with at least 9 points, expose 5 MCP tools, and pass VexDB-backed
+  `smoke-test` plus `conflict-decay-test`.
+- Achievable: keep the required stack to VexDB-compatible SQL, Python SDK,
+  psycopg2, and optional embedding providers; HNSW and PL/Python are
+  progressive enhancements with safe fallbacks.
+- Relevant: reduce duplicate or stale agent memory by moving deduplication,
+  conflict auditing, and lifecycle policy into the database core.
+- Time-bound: v0.1 covers the current MCP/SDK MVP, v0.2 closes real database
+  conflict/decay verification, and v1.0 adds production SLOs and managed LLM
+  adjudication gates.
+
+See `docs/roadmap.zh.md` for scope, milestones, risk handling, and the RACI
+ownership matrix.
+
 ## Core Ideas
 
 - Semantic deduplication at write time.

@@ -2,6 +2,16 @@
 
 这些规格用于判断 VexDB Active Memory 是否已经具备作为独立记忆框架的可行性。总分 10 分，9 分视为通过。
 
+## SMART 验收目标
+
+- 具体：v0.1 必须提供数据库原生 upsert、冲突队列裁决、遗忘归档、Python SDK 和 stdio MCP Server。
+- 可衡量：MCP 必须暴露 5 个工具；`smoke-test` 和 `conflict-decay-test` 必须在真实 VexDB 上返回 `ok: true`；总体评分必须达到 9/10。
+- 可实现：HNSW 和 PL/Python 按渐进增强处理，环境不支持时不能阻断基础写入、检索、裁决和归档。
+- 相关性：所有能力都服务于“VexDB 单独成为融合向量数据库的记忆体框架”，不依赖外部记忆体框架。
+- 有时限：v0.1 目标日期为 2026-05-31；v0.2 在 v0.1 后两周内补齐性能基线和真实 conflict/decay 证据；v1.0 再进入生产 SLO。
+
+范围、里程碑、风险和责任矩阵见 `docs/roadmap.zh.md`。
+
 ## 评分模型
 
 - OpenClaw/Hermes 接入易用性：2 分
@@ -107,7 +117,21 @@ PYTHONPATH=python pytest tests/test_sql_contract.py
 - 查询函数使用向量距离操作符
 - `active_memory.memories` 是核心表
 
-### 7. OpenClaw 接入
+### 7. 冲突裁决与遗忘闭环
+
+命令：
+```bash
+PYTHONPATH=python python -m vexdb_active_memory.cli conflict-decay-test
+```
+
+通过标准：
+- 返回 `ok: true`
+- `resolution.action` 为 `updated`、`appended` 或 `rejected`
+- `decay.archived_count >= 1`
+- `stale_memory_status` 为 `archived`
+- `events` 中包含 `RESOLVE` 和 `ARCHIVE`
+
+### 8. OpenClaw 接入
 
 命令：
 
@@ -121,7 +145,7 @@ openclaw mcp show
 - `type` 为 `stdio`
 - `command` 指向 `scripts/openclaw-vexdb-memory-mcp.sh`
 
-### 8. Hermes 接入
+### 9. Hermes 接入
 
 命令：
 
@@ -156,6 +180,7 @@ PYTHONPATH=python python -m vexdb_active_memory.cli smoke-test \
   --namespace feasibility_test \
   --scope local \
   --memory-type fact
+PYTHONPATH=python python -m vexdb_active_memory.cli conflict-decay-test
 hermes mcp test vexdb-active-memory
 openclaw mcp show
 ```

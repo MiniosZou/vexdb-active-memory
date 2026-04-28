@@ -64,11 +64,33 @@ CREATE TABLE IF NOT EXISTS active_memory.conflict_queue (
     decided_at TIMESTAMPTZ
 );
 
-ALTER TABLE active_memory.conflict_queue
-ADD COLUMN IF NOT EXISTS candidate_canonical_text TEXT;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'active_memory'
+          AND table_name = 'conflict_queue'
+          AND column_name = 'candidate_canonical_text'
+    ) THEN
+        ALTER TABLE active_memory.conflict_queue ADD COLUMN candidate_canonical_text TEXT;
+    END IF;
+END;
+$$;
 
-ALTER TABLE active_memory.conflict_queue
-ADD COLUMN IF NOT EXISTS candidate_content_hash TEXT;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'active_memory'
+          AND table_name = 'conflict_queue'
+          AND column_name = 'candidate_content_hash'
+    ) THEN
+        ALTER TABLE active_memory.conflict_queue ADD COLUMN candidate_content_hash TEXT;
+    END IF;
+END;
+$$;
 
 UPDATE active_memory.conflict_queue
 SET candidate_canonical_text = lower(candidate_content)

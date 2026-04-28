@@ -35,7 +35,8 @@ def test_conflict_and_lifecycle_constraints_are_declared():
     assert "status IN ('active', 'archived', 'deleted')" in schema
     assert "candidate_canonical_text" in schema
     assert "candidate_content_hash" in schema
-    assert "ADD COLUMN IF NOT EXISTS candidate_canonical_text" in schema
+    assert "information_schema.columns" in schema
+    assert "ADD COLUMN candidate_canonical_text" in schema
     assert "ALTER COLUMN candidate_content_hash SET NOT NULL" in schema
 
 

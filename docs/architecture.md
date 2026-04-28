@@ -9,6 +9,24 @@ VexDB Active Memory has four layers:
 
 Only the first two layers are required. Services and connectors are replaceable.
 
+## Versioned Scope
+
+v0.1 is the current MVP. It includes the SQL core, Python SDK, stdio MCP server,
+OpenClaw/Hermes setup helpers, semantic upsert, conflict queue resolution, and
+manual forgetting-curve execution.
+
+v0.2 must add repeatable VexDB-backed conflict/decay verification and publish
+clear performance baselines for write, search, conflict resolution, and decay.
+
+v0.3 may add a managed LLM adjudication provider, but only behind an explicit
+review gate that writes `update`, `append`, or `reject` decisions into
+`active_memory.resolve_conflict(...)`.
+
+v1.0 should add production SLOs, observability reports, packaging, and upgrade
+guides. REST API, background schedulers, web admin UI, and cross-database
+connectors are out of v0.1 scope unless a downstream project owns them as thin
+adapters.
+
 ## Write Path
 
 1. Normalize content.
@@ -36,6 +54,16 @@ Only the first two layers are required. Services and connectors are replaceable.
 2. An LLM, reviewer, or policy engine decides `update`, `append`, or `reject`.
 3. `active_memory.resolve_conflict(...)` applies that decision atomically and
    records an event.
+
+Quality gates for LLM adjudication:
+
+- Decision accuracy must be measured against a reviewed conflict fixture set.
+- False merge and false reject rates must be reported separately.
+- Low-confidence decisions must remain pending for human or policy review.
+- Every decision must keep the conflict id, actor, request id, rationale, and
+  final action in `memory_events` or version metadata.
+- Rollback is logical: a bad `update` is corrected by another audited version,
+  not by deleting history.
 
 ## Forgetting Path
 

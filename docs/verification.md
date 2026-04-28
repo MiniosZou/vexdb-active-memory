@@ -21,8 +21,8 @@ Verified:
 - Duplicate merge increments `duplicate_count` and `access_count`.
 - MCP initialize, `tools/list`, `vexdb_memory_add`, and `vexdb_memory_search` work.
 - `vexdb_memory_resolve_conflict` and `vexdb_memory_apply_decay` are exposed by
-  MCP and covered by SQL/MCP contract checks; run a VexDB-backed conflict/decay
-  test before claiming production conflict adjudication.
+  MCP and covered by SQL/MCP contract checks; the repeatable VexDB-backed
+  verification command is `vexdb-memory conflict-decay-test`.
 - CLI `smoke-test` works against the local VexDB deployment with mock embeddings.
 - CLI `mcp-config` and `write-wrapper` generate usable MCP client setup artifacts.
 
@@ -70,6 +70,9 @@ memories_table: true
 vexdb-memory smoke-test
 ok: true
 result_count: 1
+
+vexdb-memory conflict-decay-test
+ok: true is required before production conflict/decay claims
 ```
 
 These snippets intentionally omit DSNs, passwords, API keys, and full record
