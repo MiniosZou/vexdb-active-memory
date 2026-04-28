@@ -56,6 +56,14 @@ The output includes the raw MCP tool names and the OpenClaw-prefixed names.
 
 ## Hermes Example
 
+Generate Hermes install commands:
+
+```bash
+PYTHONPATH=python python -m vexdb_active_memory.cli hermes-install-command \
+  --command /tmp/vexdb-memory-mcp.sh \
+  --env-file ~/.hermes/credentials/vexdb-active-memory.env
+```
+
 ```yaml
 mcp_servers:
   vexdb-active-memory:
@@ -72,6 +80,14 @@ mcp_servers:
 ```
 
 ## Tools
+
+### vexdb_memory_status
+
+Checks whether the MCP server and VexDB schema are ready.
+
+Inputs: none.
+
+Use this first when validating OpenClaw, Hermes, or any MCP client integration.
 
 ### vexdb_memory_add
 

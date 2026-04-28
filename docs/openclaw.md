@@ -27,6 +27,12 @@ python -m vexdb_active_memory.cli write-wrapper \
   --pythonpath /path/to/vexdb-active-memory/python
 ```
 
+The checked-in `scripts/openclaw-vexdb-memory-mcp.sh` wrapper defaults to
+`~/.openclaw/credentials/vexdb-active-memory.env`. It prefers
+`~/.hermes/hermes-agent/venv/bin/python3` when available because that runtime
+contains the verified local database driver. Override with
+`VEXDB_ACTIVE_MEMORY_PYTHON=/path/to/python` if needed.
+
 ## 3. Generate MCP JSON
 
 ```bash

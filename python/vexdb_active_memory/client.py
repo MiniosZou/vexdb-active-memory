@@ -33,6 +33,33 @@ class ActiveMemoryClient:
     def close(self) -> None:
         self.pool.close()
 
+    def health(self) -> dict[str, Any]:
+        with self.pool.connection() as conn:
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT
+                            current_database(),
+                            current_schema(),
+                            to_regnamespace('active_memory') IS NOT NULL,
+                            to_regclass('active_memory.memories') IS NOT NULL
+                        """
+                    )
+                    database, schema, active_memory_schema, memories_table = cur.fetchone()
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+        return {
+            "database": database,
+            "schema": schema,
+            "active_memory_schema": bool(active_memory_schema),
+            "memories_table": bool(memories_table),
+            "embedding_provider": self.config.embedding_provider,
+            "embedding_dimensions": self.config.embedding_dimensions,
+        }
+
     def add(
         self,
         text: str,
@@ -162,29 +189,33 @@ class ActiveMemoryClient:
         params.append(max(1, min(limit, 100)))
 
         with self.pool.connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    f"""
-                    SELECT id, content, metadata, embedding <=> %s::floatvector AS distance,
-                           tenant_id, namespace, scope, memory_type, importance,
-                           confidence, access_count, updated_at
-                    FROM active_memory.memories
-                    WHERE tenant_id = %s
-                      AND namespace = %s
-                      AND scope = %s
-                      AND status = 'active'
-                      AND (valid_until IS NULL OR valid_until > now())
-                      {metadata_clause}
-                    ORDER BY embedding <=> %s::floatvector
-                    LIMIT %s
-                    """,
-                    params[:-1] + [vec, params[-1]],
-                )
-                rows = cur.fetchall()
-                ids = [row[0] for row in rows]
-                if ids:
-                    cur.execute("SELECT active_memory.reinforce_memories(%s::uuid[])", (ids,))
-                    conn.commit()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        f"""
+                        SELECT id, content, metadata, embedding <=> %s::floatvector AS distance,
+                               tenant_id, namespace, scope, memory_type, importance,
+                               confidence, access_count, updated_at
+                        FROM active_memory.memories
+                        WHERE tenant_id = %s
+                          AND namespace = %s
+                          AND scope = %s
+                          AND status = 'active'
+                          AND (valid_until IS NULL OR valid_until > now())
+                          {metadata_clause}
+                        ORDER BY embedding <=> %s::floatvector
+                        LIMIT %s
+                        """,
+                        params[:-1] + [vec, params[-1]],
+                    )
+                    rows = cur.fetchall()
+                    ids = [row[0] for row in rows]
+                    if ids:
+                        cur.execute("SELECT active_memory.reinforce_memories(%s::uuid[])", (ids,))
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
 
         return SearchResult([self._record_from_row(row) for row in rows])
 

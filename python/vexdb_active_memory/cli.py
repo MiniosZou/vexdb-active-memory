@@ -87,6 +87,29 @@ def cmd_openclaw_install_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_hermes_install_command(args: argparse.Namespace) -> int:
+    env_arg = f"VEXDB_ACTIVE_MEMORY_ENV={args.env_file}"
+    print(
+        f"hermes mcp add {shlex.quote(args.name)} "
+        f"--command {shlex.quote(args.command)} --env {shlex.quote(env_arg)}"
+    )
+    print(f"hermes mcp test {shlex.quote(args.name)}")
+    if args.restart:
+        print("systemctl --user restart hermes-gateway")
+    if args.config_snippet:
+        print()
+        print("config.yaml snippet:")
+        print("mcp_servers:")
+        print(f"  {args.name}:")
+        print(f"    command: {args.command}")
+        print("    args: []")
+        print("    env:")
+        print(f"      VEXDB_ACTIVE_MEMORY_ENV: {args.env_file}")
+        print("    timeout: 120")
+        print("    connect_timeout: 60")
+    return 0
+
+
 def cmd_mcp_smoke(args: argparse.Namespace) -> int:
     from .mcp_server import _handle_request
 
@@ -245,6 +268,28 @@ def build_parser() -> argparse.ArgumentParser:
         help="also print the OpenClaw gateway restart command",
     )
     p.set_defaults(func=cmd_openclaw_install_command)
+
+    p = sub.add_parser("hermes-install-command", help="print Hermes MCP install and test commands")
+    p.add_argument("--command", required=True, help="absolute wrapper path used by Hermes")
+    p.add_argument("--name", default="vexdb-active-memory", help="Hermes MCP server name")
+    p.add_argument(
+        "--env-file",
+        default="~/.hermes/credentials/vexdb-active-memory.env",
+        help="environment file sourced by the wrapper when Hermes starts it",
+    )
+    p.add_argument(
+        "--config-snippet",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="also print a config.yaml snippet for non-interactive setups",
+    )
+    p.add_argument(
+        "--restart",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="also print the Hermes gateway restart command",
+    )
+    p.set_defaults(func=cmd_hermes_install_command)
 
     p = sub.add_parser("mcp-smoke", help="verify the built-in MCP protocol and list tool names")
     p.add_argument("--protocol-version", default="2025-11-25")

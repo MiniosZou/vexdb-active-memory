@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import sys
 from typing import Any, Callable
 
@@ -14,6 +15,16 @@ SUPPORTED_PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-1
 
 _client: ActiveMemoryClient | None = None
 
+_DSN_SECRET_PATTERN = re.compile(r"(postgres(?:ql)?://[^:\s/@]+:)([^@\s]+)(@)", re.IGNORECASE)
+_PASSWORD_SECRET_PATTERN = re.compile(r"((?:password|passwd|pwd)=)([^;\s]+)", re.IGNORECASE)
+_KEY_VALUE_SECRET_PATTERN = re.compile(
+    r"((?:api[_-]?key|access[_-]?key|secret[_-]?key|token|authorization)=)([^;\s]+)",
+    re.IGNORECASE,
+)
+_BEARER_SECRET_PATTERN = re.compile(r"(Authorization:\s*Bearer\s+)([A-Za-z0-9._~+/=-]+)", re.IGNORECASE)
+_ENV_SECRET_PATTERN = re.compile(r"((?:DASHSCOPE_API_KEY|OPENAI_API_KEY|VEXDB_DSN)=)([^;\s]+)")
+_BARE_SECRET_PATTERN = re.compile(r"\b(?:sk|pk|ak)-[A-Za-z0-9._~+/=-]+\b", re.IGNORECASE)
+
 
 def _get_client() -> ActiveMemoryClient:
     global _client
@@ -22,12 +33,35 @@ def _get_client() -> ActiveMemoryClient:
     return _client
 
 
+def _safe_error(exc: Exception) -> str:
+    return _safe_text(str(exc))
+
+
+def _safe_text(value: Any) -> str:
+    message = str(value)
+    message = _DSN_SECRET_PATTERN.sub(r"\1<redacted>\3", message)
+    message = _PASSWORD_SECRET_PATTERN.sub(r"\1<redacted>", message)
+    message = _KEY_VALUE_SECRET_PATTERN.sub(r"\1<redacted>", message)
+    message = _BEARER_SECRET_PATTERN.sub(r"\1<redacted>", message)
+    message = _ENV_SECRET_PATTERN.sub(r"\1<redacted>", message)
+    message = _BARE_SECRET_PATTERN.sub("<redacted>", message)
+    return message
+
+
 def tool_status() -> dict[str, Any]:
-    return {
+    payload: dict[str, Any] = {
         "name": "vexdb-active-memory",
         "status": "ready",
         "tools": list(TOOLS.keys()),
     }
+    try:
+        payload["database"] = _get_client().health()
+    except Exception as exc:
+        payload["status"] = "degraded"
+        payload["database"] = {"ok": False, "error": _safe_error(exc)}
+    else:
+        payload["database"]["ok"] = True
+    return payload
 
 
 def tool_add(
@@ -101,45 +135,60 @@ def tool_search(
 
 TOOLS: dict[str, dict[str, Any]] = {
     "vexdb_memory_status": {
-        "description": "Return VexDB Active Memory server status.",
-        "input_schema": {"type": "object", "properties": {}},
+        "description": (
+            "Check whether VexDB Active Memory is connected and ready. "
+            "Use this before adding or searching memories when validating OpenClaw, Hermes, or MCP setup."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
         "handler": tool_status,
     },
     "vexdb_memory_add": {
-        "description": "Add or merge a memory in VexDB Active Memory.",
+        "description": (
+            "Store a durable memory in VexDB Active Memory. Use this when the user says to remember, "
+            "persist, save knowledge, write long-term memory, or add facts/preferences for later retrieval."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "content": {"type": "string"},
-                "tenant_id": {"type": "string"},
-                "namespace": {"type": "string"},
-                "scope": {"type": "string"},
-                "memory_type": {"type": "string"},
-                "metadata": {"type": "object"},
-                "source": {"type": "string"},
-                "actor": {"type": "string"},
-                "subject": {"type": "string"},
-                "importance": {"type": "integer"},
-                "confidence": {"type": "number"},
+                "content": {"type": "string", "description": "Memory text to store."},
+                "tenant_id": {"type": "string", "description": "Tenant partition. Defaults to default."},
+                "namespace": {"type": "string", "description": "Application or agent namespace."},
+                "scope": {"type": "string", "description": "Memory scope, such as global, user id, or session id."},
+                "memory_type": {"type": "string", "description": "Memory category such as fact, preference, task, or note."},
+                "metadata": {"type": "object", "description": "Small JSON metadata object for filtering and provenance."},
+                "source": {"type": "string", "description": "Source system or document identifier."},
+                "actor": {"type": "string", "description": "Agent or user writing the memory."},
+                "subject": {"type": "string", "description": "Entity the memory is about."},
+                "importance": {"type": "integer", "description": "Importance score from 1 to 5."},
+                "confidence": {"type": "number", "description": "Confidence from 0.0 to 1.0."},
             },
             "required": ["content"],
+            "additionalProperties": False,
         },
         "handler": tool_add,
     },
     "vexdb_memory_search": {
-        "description": "Search memories from VexDB Active Memory.",
+        "description": (
+            "Search durable memories stored in VexDB Active Memory. Use this when the user asks what is remembered, "
+            "requests prior knowledge, needs preferences, or asks for facts saved earlier."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "query": {"type": "string"},
-                "tenant_id": {"type": "string"},
-                "namespace": {"type": "string"},
-                "scope": {"type": "string"},
-                "memory_type": {"type": "string"},
-                "limit": {"type": "integer"},
-                "metadata_filter": {"type": "object"},
+                "query": {"type": "string", "description": "Natural-language retrieval query."},
+                "tenant_id": {"type": "string", "description": "Tenant partition. Defaults to default."},
+                "namespace": {"type": "string", "description": "Application or agent namespace."},
+                "scope": {"type": "string", "description": "Memory scope to search."},
+                "memory_type": {"type": "string", "description": "Optional memory category filter."},
+                "limit": {"type": "integer", "description": "Maximum number of memories to return, capped at 100."},
+                "metadata_filter": {"type": "object", "description": "JSON metadata containment filter."},
             },
             "required": ["query"],
+            "additionalProperties": False,
         },
         "handler": tool_search,
     },
@@ -148,16 +197,38 @@ TOOLS: dict[str, dict[str, Any]] = {
 
 def _coerce_args(args: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any]:
     properties = schema.get("properties", {})
+    required = set(schema.get("required", []))
+    unknown = set(args) - set(properties)
+    if schema.get("additionalProperties") is False and unknown:
+        names = _safe_text(", ".join(sorted(unknown)))
+        raise ValueError(f"Unknown argument(s): {names}")
+    missing = required - set(args)
+    if missing:
+        names = ", ".join(sorted(missing))
+        raise ValueError(f"Missing required argument(s): {names}")
     clean = {key: value for key, value in args.items() if key in properties}
     for key, value in list(clean.items()):
         declared = properties.get(key, {}).get("type")
         try:
+            if declared == "string":
+                if not isinstance(value, str):
+                    raise ValueError(f"Invalid value for {key}")
+                if key in {"content", "query"} and not value.strip():
+                    raise ValueError(f"Invalid value for {key}")
+            elif declared == "object" and not isinstance(value, dict):
+                raise ValueError(f"Invalid value for {key}")
             if declared == "integer" and not isinstance(value, int):
                 clean[key] = int(value)
             elif declared == "number" and not isinstance(value, (int, float)):
                 clean[key] = float(value)
         except (TypeError, ValueError) as exc:
             raise ValueError(f"Invalid value for {key}") from exc
+    if "limit" in clean:
+        clean["limit"] = max(1, min(clean["limit"], 100))
+    if "importance" in clean and not 1 <= clean["importance"] <= 5:
+        raise ValueError("Invalid value for importance")
+    if "confidence" in clean and not 0 <= clean["confidence"] <= 1:
+        raise ValueError("Invalid value for confidence")
     return clean
 
 
@@ -203,7 +274,7 @@ def _handle_request(request: dict[str, Any]) -> dict[str, Any] | None:
             return {
                 "jsonrpc": "2.0",
                 "id": req_id,
-                "error": {"code": -32601, "message": f"Unknown tool: {tool_name}"},
+                "error": {"code": -32601, "message": f"Unknown tool: {_safe_text(tool_name)}"},
             }
         spec = TOOLS[tool_name]
         try:
@@ -215,12 +286,18 @@ def _handle_request(request: dict[str, Any]) -> dict[str, Any] | None:
                 "id": req_id,
                 "result": {"content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False)}]},
             }
-        except Exception as exc:
-            logger.exception("Tool failed")
+        except ValueError as exc:
             return {
                 "jsonrpc": "2.0",
                 "id": req_id,
-                "error": {"code": -32000, "message": str(exc)},
+                "error": {"code": -32000, "message": _safe_error(exc)},
+            }
+        except Exception as exc:
+            logger.error("Tool failed: %s", _safe_error(exc))
+            return {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "error": {"code": -32000, "message": _safe_error(exc)},
             }
 
     if req_id is None:
@@ -228,7 +305,7 @@ def _handle_request(request: dict[str, Any]) -> dict[str, Any] | None:
     return {
         "jsonrpc": "2.0",
         "id": req_id,
-        "error": {"code": -32601, "message": f"Unknown method: {method}"},
+        "error": {"code": -32601, "message": f"Unknown method: {_safe_text(method)}"},
     }
 
 
@@ -245,9 +322,8 @@ def main() -> None:
         except KeyboardInterrupt:
             break
         except Exception as exc:
-            logger.error("Server error: %s", exc)
+            logger.error("Server error: %s", _safe_error(exc))
 
 
 if __name__ == "__main__":
     main()
-

@@ -23,6 +23,49 @@ Verified:
 - CLI `smoke-test` works against the local VexDB deployment with mock embeddings.
 - CLI `mcp-config` and `write-wrapper` generate usable MCP client setup artifacts.
 
+Additional MCP runtime verification on 2026-04-28:
+
+- OpenClaw MCP config contains `vexdb-active-memory` as a stdio server.
+- OpenClaw discovers `vexdb-active-memory__vexdb_memory_add`,
+  `vexdb-active-memory__vexdb_memory_search`, and
+  `vexdb-active-memory__vexdb_memory_status`.
+- Hermes `mcp test vexdb-active-memory` connects successfully and discovers
+  `vexdb_memory_status`, `vexdb_memory_add`, and `vexdb_memory_search`.
+- MCP `tools/call` inserted three UTF-8 Chinese memory records into local VexDB
+  and a scoped search returned all three records.
+- Natural-language tool selection in OpenClaw/Hermes can still vary by
+  agent/session behavior, so MCP discovery and direct tool-call checks should
+  be used as the integration source of truth.
+
+Sanitized evidence snippets from the verified local machine:
+
+```text
+vexdb-memory mcp-smoke
+ok: true
+tools: vexdb_memory_status, vexdb_memory_add, vexdb_memory_search
+openclaw_tool_names:
+  vexdb-active-memory__vexdb_memory_status
+  vexdb-active-memory__vexdb_memory_add
+  vexdb-active-memory__vexdb_memory_search
+
+hermes mcp test vexdb-active-memory
+connected: true
+tools discovered: 3
+
+vexdb_memory_status
+status: ready
+database.ok: true
+active_memory_schema: true
+memories_table: true
+
+vexdb-memory smoke-test
+ok: true
+result_count: 1
+```
+
+These snippets intentionally omit DSNs, passwords, API keys, and full record
+payloads. Re-run the commands in `docs/test-specs.zh.md` on each new machine.
+
 Notes:
 
 - VexDB trigger syntax follows older PostgreSQL compatibility: use
