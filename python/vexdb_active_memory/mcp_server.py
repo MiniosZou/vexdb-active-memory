@@ -77,7 +77,7 @@ def tool_add(
     importance: int = 3,
     confidence: float = 1.0,
 ) -> dict[str, Any]:
-    memory_id = _get_client().add(
+    result = _get_client().upsert(
         content,
         metadata=metadata,
         tenant_id=tenant_id,
@@ -90,7 +90,7 @@ def tool_add(
         importance=importance,
         confidence=confidence,
     )
-    return {"id": memory_id}
+    return result
 
 
 def tool_search(
@@ -131,6 +131,40 @@ def tool_search(
         ],
         "mcp_compatible": result.to_mcp_compatible(),
     }
+
+
+def tool_resolve_conflict(
+    conflict_id: str,
+    decision: str,
+    actor: str | None = None,
+    request_id: str | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    if decision not in {"update", "append", "reject"}:
+        raise ValueError("Invalid value for decision")
+    return _get_client().resolve_conflict(
+        conflict_id,
+        decision,
+        actor=actor,
+        request_id=request_id,
+        metadata=metadata,
+    )
+
+
+def tool_apply_decay(
+    tenant_id: str | None = None,
+    namespace: str | None = None,
+    archive_before: str = "30 days",
+    delete_before: str | None = None,
+    min_access_count: int = 1,
+) -> dict[str, Any]:
+    return _get_client().apply_decay(
+        tenant_id=tenant_id,
+        namespace=namespace,
+        archive_before=archive_before,
+        delete_before=delete_before,
+        min_access_count=min_access_count,
+    )
 
 
 TOOLS: dict[str, dict[str, Any]] = {
@@ -191,6 +225,57 @@ TOOLS: dict[str, dict[str, Any]] = {
             "additionalProperties": False,
         },
         "handler": tool_search,
+    },
+    "vexdb_memory_resolve_conflict": {
+        "description": (
+            "Resolve a queued memory conflict after an LLM or reviewer decides whether the candidate "
+            "updates the old memory, should be appended as a separate memory, or should be rejected."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "conflict_id": {"type": "string", "description": "Conflict id from the conflict queue."},
+                "decision": {
+                    "type": "string",
+                    "enum": ["update", "append", "reject"],
+                    "description": "One of update, append, or reject.",
+                },
+                "actor": {"type": "string", "description": "Agent or reviewer resolving the conflict."},
+                "request_id": {"type": "string", "description": "Optional idempotency or trace id."},
+                "metadata": {"type": "object", "description": "Resolution metadata, such as LLM rationale."},
+            },
+            "required": ["conflict_id", "decision"],
+            "additionalProperties": False,
+        },
+        "handler": tool_resolve_conflict,
+    },
+    "vexdb_memory_apply_decay": {
+        "description": (
+            "Apply the automatic forgetting curve by archiving stale, low-importance memories and optionally "
+            "marking old archived memories as deleted."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "tenant_id": {"type": "string", "description": "Optional tenant partition."},
+                "namespace": {"type": "string", "description": "Optional namespace filter."},
+                "archive_before": {
+                    "type": "string",
+                    "description": "Archive memories older than this SQL interval, for example '30 days'.",
+                },
+                "delete_before": {
+                    "type": "string",
+                    "description": "Optionally delete archived memories older than this SQL interval.",
+                },
+                "min_access_count": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Archive only memories at or below this access count.",
+                },
+            },
+            "additionalProperties": False,
+        },
+        "handler": tool_apply_decay,
     },
 }
 

@@ -20,6 +20,9 @@ Verified:
 - Exact duplicate `add()` returns the same canonical UUID and does not create another active row.
 - Duplicate merge increments `duplicate_count` and `access_count`.
 - MCP initialize, `tools/list`, `vexdb_memory_add`, and `vexdb_memory_search` work.
+- `vexdb_memory_resolve_conflict` and `vexdb_memory_apply_decay` are exposed by
+  MCP and covered by SQL/MCP contract checks; run a VexDB-backed conflict/decay
+  test before claiming production conflict adjudication.
 - CLI `smoke-test` works against the local VexDB deployment with mock embeddings.
 - CLI `mcp-config` and `write-wrapper` generate usable MCP client setup artifacts.
 
@@ -28,9 +31,12 @@ Additional MCP runtime verification on 2026-04-28:
 - OpenClaw MCP config contains `vexdb-active-memory` as a stdio server.
 - OpenClaw discovers `vexdb-active-memory__vexdb_memory_add`,
   `vexdb-active-memory__vexdb_memory_search`, and
-  `vexdb-active-memory__vexdb_memory_status`.
+  `vexdb-active-memory__vexdb_memory_status`; the current MCP contract also
+  exposes `vexdb-active-memory__vexdb_memory_resolve_conflict` and
+  `vexdb-active-memory__vexdb_memory_apply_decay`.
 - Hermes `mcp test vexdb-active-memory` connects successfully and discovers
-  `vexdb_memory_status`, `vexdb_memory_add`, and `vexdb_memory_search`.
+  `vexdb_memory_status`, `vexdb_memory_add`, `vexdb_memory_search`,
+  `vexdb_memory_resolve_conflict`, and `vexdb_memory_apply_decay`.
 - MCP `tools/call` inserted three UTF-8 Chinese memory records into local VexDB
   and a scoped search returned all three records.
 - Natural-language tool selection in OpenClaw/Hermes can still vary by
@@ -42,15 +48,18 @@ Sanitized evidence snippets from the verified local machine:
 ```text
 vexdb-memory mcp-smoke
 ok: true
-tools: vexdb_memory_status, vexdb_memory_add, vexdb_memory_search
+tools: vexdb_memory_status, vexdb_memory_add, vexdb_memory_search,
+  vexdb_memory_resolve_conflict, vexdb_memory_apply_decay
 openclaw_tool_names:
   vexdb-active-memory__vexdb_memory_status
   vexdb-active-memory__vexdb_memory_add
   vexdb-active-memory__vexdb_memory_search
+  vexdb-active-memory__vexdb_memory_resolve_conflict
+  vexdb-active-memory__vexdb_memory_apply_decay
 
 hermes mcp test vexdb-active-memory
 connected: true
-tools discovered: 3
+tools discovered: 5
 
 vexdb_memory_status
 status: ready

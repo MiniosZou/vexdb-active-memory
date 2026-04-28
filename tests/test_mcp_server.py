@@ -17,15 +17,52 @@ class FakeClient:
     def add(self, text, **kwargs):
         return "00000000-0000-0000-0000-000000000001"
 
+    def upsert(self, text, **kwargs):
+        return {
+            "id": "00000000-0000-0000-0000-000000000001",
+            "action": "queued_conflict",
+            "conflict_id": "00000000-0000-0000-0000-000000000002",
+            "nearest_distance": 0.08,
+        }
+
 
 def test_tools_list_exposes_strict_agent_friendly_schemas():
     response = mcp._handle_request({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}})
     tools = {tool["name"]: tool for tool in response["result"]["tools"]}
 
-    assert set(tools) == {"vexdb_memory_status", "vexdb_memory_add", "vexdb_memory_search"}
+    assert set(tools) == {
+        "vexdb_memory_status",
+        "vexdb_memory_add",
+        "vexdb_memory_search",
+        "vexdb_memory_resolve_conflict",
+        "vexdb_memory_apply_decay",
+    }
     assert "remember" in tools["vexdb_memory_add"]["description"]
     assert "what is remembered" in tools["vexdb_memory_search"]["description"]
+    assert "forgetting curve" in tools["vexdb_memory_apply_decay"]["description"]
     assert tools["vexdb_memory_add"]["inputSchema"]["additionalProperties"] is False
+    assert tools["vexdb_memory_resolve_conflict"]["inputSchema"]["properties"]["decision"]["enum"] == [
+        "update",
+        "append",
+        "reject",
+    ]
+    assert tools["vexdb_memory_apply_decay"]["inputSchema"]["properties"]["min_access_count"]["minimum"] == 0
+
+
+def test_add_returns_conflict_metadata_for_resolution(monkeypatch):
+    monkeypatch.setattr(mcp, "_client", FakeClient())
+    response = mcp._handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": "vexdb_memory_add", "arguments": {"content": "hello"}},
+        }
+    )
+    payload = json.loads(response["result"]["content"][0]["text"])
+
+    assert payload["action"] == "queued_conflict"
+    assert payload["conflict_id"] == "00000000-0000-0000-0000-000000000002"
 
 
 def test_tool_call_rejects_unknown_arguments():

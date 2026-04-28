@@ -13,7 +13,8 @@ VexDB SQL plus this SDK.
 - Transaction-safe concurrent writes.
 - Vector, metadata, time, and lifecycle aware retrieval.
 - Version history and event audit trail.
-- Optional MCP and REST surfaces on top of the same database core.
+- Optional MCP surface on top of the same database core; REST can be added as
+  a thin adapter later without changing the core memory tables/functions.
 
 ## 中文说明
 
@@ -22,7 +23,7 @@ VexDB Active Memory 是一个独立的、数据库原生的智能记忆框架。
 当前项目已经包含：
 
 - VexDB SQL schema、函数、触发器和索引。
-- Python SDK，用于写入记忆、语义检索、去重合并和冲突队列。
+- Python SDK，用于写入记忆、语义检索、数据库原生 UPSERT、冲突裁决和遗忘策略。
 - 独立 stdio MCP Server，可被 OpenClaw、Hermes 或其他 MCP 客户端接入。
 - CLI 工具，用于初始化数据库、生成 MCP 配置、写 wrapper、执行 smoke test。
 - OpenClaw/Hermes 接入文档和本地验证规格。
@@ -93,11 +94,13 @@ PYTHONPATH=python python -m vexdb_active_memory.cli smoke-test \
 PYTHONPATH=python python -m vexdb_active_memory.cli mcp-smoke
 ```
 
-应看到 3 个工具：
+应看到 5 个工具：
 
 - `vexdb_memory_status`
 - `vexdb_memory_add`
 - `vexdb_memory_search`
+- `vexdb_memory_resolve_conflict`
+- `vexdb_memory_apply_decay`
 
 5. 接入 OpenClaw：
 
@@ -111,6 +114,8 @@ OpenClaw 中工具名会带 MCP server 前缀，例如：
 - `vexdb-active-memory__vexdb_memory_add`
 - `vexdb-active-memory__vexdb_memory_search`
 - `vexdb-active-memory__vexdb_memory_status`
+- `vexdb-active-memory__vexdb_memory_resolve_conflict`
+- `vexdb-active-memory__vexdb_memory_apply_decay`
 
 6. 接入 Hermes：
 
@@ -133,19 +138,21 @@ hermes mcp test vexdb-active-memory
 当前本机验证结论：
 
 - OpenClaw 能加载 `vexdb-active-memory` MCP server。
-- Hermes `mcp test vexdb-active-memory` 能连接并发现 3 个工具。
+- Hermes `mcp test vexdb-active-memory` 能连接并发现 5 个工具。
 - MCP `status` 能确认数据库、`active_memory` schema 和核心表可用。
 - MCP `add/search` 已验证可以写入并检索中文记忆。
+- SQL 层提供 `active_memory.upsert_memory`、`active_memory.resolve_conflict` 和 `active_memory.apply_decay`，用于数据库原生写入、冲突裁决和遗忘归档。
+- SQL 层会渐进尝试 HNSW 索引和可选 PL/Python 冲突 hint；环境不支持时不会阻断核心记忆功能。
 - 本机实测目标评分：9.1/10。换到新机器时，应按 [docs/test-specs.zh.md](docs/test-specs.zh.md) 重新跑验收命令。
 
 ## 中文故障分流
 
 | 现象 | 先跑哪个命令 | 判断 |
 | --- | --- | --- |
-| 不确定 MCP server 是否正常 | `PYTHONPATH=python python -m vexdb_active_memory.cli mcp-smoke` | 能看到 3 个工具说明 MCP 协议层正常 |
+| 不确定 MCP server 是否正常 | `PYTHONPATH=python python -m vexdb_active_memory.cli mcp-smoke` | 能看到 5 个工具说明 MCP 协议层正常 |
 | 不确定数据库是否可写可搜 | `PYTHONPATH=python python -m vexdb_active_memory.cli smoke-test` | `ok: true` 说明 SDK 入库检索闭环正常 |
 | OpenClaw 找不到工具 | `openclaw mcp show` | 应存在 `vexdb-active-memory`，且 `type` 为 `stdio` |
-| Hermes 找不到工具 | `hermes mcp test vexdb-active-memory` | 应显示 connected，并发现 3 个工具 |
+| Hermes 找不到工具 | `hermes mcp test vexdb-active-memory` | 应显示 connected，并发现 5 个工具 |
 | agent 不主动调用工具 | 先跑 `mcp-smoke` 和 `hermes mcp test` | 如果都通过，这是 agent 工具选择行为，不是本项目 MCP 连接失败 |
 | status 显示 degraded | 直接调用 `vexdb_memory_status` | 看 `database.error`，常见原因是 DSN、数据库权限、Python 环境缺驱动 |
 | DashScope embedding 失败 | 临时改成 `VEXDB_MEMORY_EMBEDDING_PROVIDER=mock` | 如果 mock 能跑，说明数据库链路正常，问题在 embedding 服务或网络 |

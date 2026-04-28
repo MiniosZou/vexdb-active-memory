@@ -76,6 +76,37 @@ class ActiveMemoryClient:
         confidence: float = 1.0,
         request_id: str | None = None,
     ) -> str:
+        return self.upsert(
+            text,
+            metadata=metadata,
+            tenant_id=tenant_id,
+            namespace=namespace,
+            scope=scope,
+            memory_type=memory_type,
+            source=source,
+            actor=actor,
+            subject=subject,
+            importance=importance,
+            confidence=confidence,
+            request_id=request_id,
+        )["id"]
+
+    def upsert(
+        self,
+        text: str,
+        metadata: dict[str, Any] | None = None,
+        *,
+        tenant_id: str = "default",
+        namespace: str = "default",
+        scope: str = "global",
+        memory_type: str = "fact",
+        source: str | None = None,
+        actor: str | None = None,
+        subject: str | None = None,
+        importance: int = 3,
+        confidence: float = 1.0,
+        request_id: str | None = None,
+    ) -> dict[str, Any]:
         canonical = canonicalize(text)
         digest = content_hash(canonical)
         embedding = self.embedding_provider.embed([text])[0]
@@ -86,58 +117,13 @@ class ActiveMemoryClient:
         with self.pool.connection() as conn:
             try:
                 with conn.cursor() as cur:
-                    cur.execute("BEGIN")
-                    cur.execute("SELECT pg_advisory_xact_lock(%s)", (lock_key,))
-
-                    existing_id = self._merge_exact_if_found(
-                        cur, digest, text, metadata_json, tenant_id, namespace, scope, actor, request_id
-                    )
-                    if existing_id:
-                        conn.commit()
-                        return existing_id
-
-                    nearest = self._nearest_for_update(
-                        cur, vec, tenant_id, namespace, scope, memory_type, limit=5
-                    )
-                    if nearest:
-                        nearest_id, old_content, old_metadata, distance = nearest
-                        if distance < self.config.dedup_distance:
-                            self._merge_memory(
-                                cur,
-                                memory_id=nearest_id,
-                                old_content=old_content,
-                                old_metadata=old_metadata,
-                                new_content=text,
-                                new_metadata_json=metadata_json,
-                                embedding_literal=vec,
-                                actor=actor,
-                                request_id=request_id,
-                                reason="semantic_dedup",
-                            )
-                            conn.commit()
-                            return _uuid_text(nearest_id)
-                        if distance < self.config.conflict_distance:
-                            conflict_id = str(uuid.uuid4())
-                            cur.execute(
-                                """
-                                INSERT INTO active_memory.conflict_queue(
-                                    conflict_id, old_memory_id, candidate_content,
-                                    candidate_embedding, candidate_metadata, distance
-                                ) VALUES (%s, %s, %s, %s::floatvector, %s::jsonb, %s)
-                                """,
-                                (conflict_id, nearest_id, text, vec, metadata_json, distance),
-                            )
-
                     memory_id = str(uuid.uuid4())
                     cur.execute(
                         """
-                        INSERT INTO active_memory.memories(
-                            id, tenant_id, namespace, scope, memory_type, content,
-                            canonical_text, content_hash, embedding, metadata, source,
-                            actor, subject, importance, confidence
-                        ) VALUES (
+                        SELECT memory_id, action, conflict_id, nearest_distance
+                        FROM active_memory.upsert_memory(
                             %s, %s, %s, %s, %s, %s, %s, %s, %s::floatvector,
-                            %s::jsonb, %s, %s, %s, %s, %s
+                            %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s, %s
                         )
                         """,
                         (
@@ -156,11 +142,20 @@ class ActiveMemoryClient:
                             subject,
                             importance,
                             confidence,
+                            self.config.dedup_distance,
+                            self.config.conflict_distance,
+                            lock_key,
+                            request_id,
                         ),
                     )
-                    self._event(cur, memory_id, "ADD", actor, request_id, {"memory_type": memory_type})
+                    row = cur.fetchone()
                 conn.commit()
-                return memory_id
+                return {
+                    "id": _uuid_text(row[0]),
+                    "action": row[1],
+                    "conflict_id": _uuid_text(row[2]) if row[2] else None,
+                    "nearest_distance": float(row[3]) if row[3] is not None else None,
+                }
             except Exception:
                 conn.rollback()
                 raise
@@ -219,158 +214,62 @@ class ActiveMemoryClient:
 
         return SearchResult([self._record_from_row(row) for row in rows])
 
-    def _merge_exact_if_found(
+    def resolve_conflict(
         self,
-        cur: object,
-        digest: str,
-        text: str,
-        metadata_json: str,
-        tenant_id: str,
-        namespace: str,
-        scope: str,
-        actor: str | None,
-        request_id: str | None,
-    ) -> str | None:
-        cur.execute(
-            """
-            SELECT id, content, metadata
-            FROM active_memory.memories
-            WHERE tenant_id = %s AND namespace = %s AND scope = %s
-              AND content_hash = %s AND status = 'active'
-            LIMIT 1
-            FOR UPDATE
-            """,
-            (tenant_id, namespace, scope, digest),
-        )
-        row = cur.fetchone()
-        if not row:
-            return None
-        memory_id, old_content, old_metadata = row
-        self._merge_memory(
-            cur,
-            memory_id=memory_id,
-            old_content=old_content,
-            old_metadata=old_metadata,
-            new_content=text,
-            new_metadata_json=metadata_json,
-            embedding_literal=None,
-            actor=actor,
-            request_id=request_id,
-            reason="exact_dedup",
-        )
-        return _uuid_text(memory_id)
-
-    def _nearest_for_update(
-        self,
-        cur: object,
-        vec: str,
-        tenant_id: str,
-        namespace: str,
-        scope: str,
-        memory_type: str,
-        limit: int,
-    ) -> tuple[Any, str, dict[str, Any], float] | None:
-        cur.execute(
-            """
-            SELECT id, content, metadata, embedding <=> %s::floatvector AS distance
-            FROM active_memory.memories
-            WHERE tenant_id = %s AND namespace = %s AND scope = %s
-              AND memory_type = %s AND status = 'active'
-            ORDER BY embedding <=> %s::floatvector
-            LIMIT %s
-            FOR UPDATE
-            """,
-            (vec, tenant_id, namespace, scope, memory_type, vec, limit),
-        )
-        row = cur.fetchone()
-        if not row:
-            return None
-        return row[0], row[1], row[2] or {}, float(row[3])
-
-    def _merge_memory(
-        self,
-        cur: object,
+        conflict_id: str,
+        decision: str,
         *,
-        memory_id: Any,
-        old_content: str,
-        old_metadata: dict[str, Any],
-        new_content: str,
-        new_metadata_json: str,
-        embedding_literal: str | None,
-        actor: str | None,
-        request_id: str | None,
-        reason: str,
-    ) -> None:
-        version_id = str(uuid.uuid4())
-        if embedding_literal:
-            cur.execute(
-                """
-                UPDATE active_memory.memories
-                SET content = %s,
-                    canonical_text = %s,
-                    content_hash = %s,
-                    embedding = %s::floatvector,
-                    metadata = metadata || %s::jsonb,
-                    duplicate_count = duplicate_count + 1,
-                    access_count = access_count + 1
-                WHERE id = %s
-                """,
-                (
-                    new_content,
-                    canonicalize(new_content),
-                    content_hash(canonicalize(new_content)),
-                    embedding_literal,
-                    new_metadata_json,
-                    memory_id,
-                ),
-            )
-        else:
-            cur.execute(
-                """
-                UPDATE active_memory.memories
-                SET metadata = metadata || %s::jsonb,
-                    duplicate_count = duplicate_count + 1,
-                    access_count = access_count + 1
-                WHERE id = %s
-                """,
-                (new_metadata_json, memory_id),
-            )
-        cur.execute(
-            """
-            INSERT INTO active_memory.memory_versions(
-                version_id, memory_id, old_content, new_content,
-                old_metadata, new_metadata, change_reason
-            ) VALUES (%s, %s, %s, %s, %s::jsonb, %s::jsonb, %s)
-            """,
-            (
-                version_id,
-                memory_id,
-                old_content,
-                new_content,
-                json.dumps(old_metadata or {}, ensure_ascii=False),
-                new_metadata_json,
-                reason,
-            ),
-        )
-        self._event(cur, _uuid_text(memory_id), "MERGE", actor, request_id, {"reason": reason})
+        actor: str | None = None,
+        request_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, str]:
+        metadata_json = json.dumps(metadata or {}, ensure_ascii=False)
+        with self.pool.connection() as conn:
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT memory_id, action
+                        FROM active_memory.resolve_conflict(
+                            %s, %s, %s, %s, %s::jsonb
+                        )
+                        """,
+                        (conflict_id, decision, actor, request_id, metadata_json),
+                    )
+                    row = cur.fetchone()
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+        return {"memory_id": _uuid_text(row[0]), "action": row[1]}
 
-    def _event(
+    def apply_decay(
         self,
-        cur: object,
-        memory_id: str,
-        operation: str,
-        actor: str | None,
-        request_id: str | None,
-        payload: dict[str, Any],
-    ) -> None:
-        cur.execute(
-            """
-            INSERT INTO active_memory.memory_events(
-                event_id, memory_id, operation, actor, request_id, payload
-            ) VALUES (%s, %s, %s, %s, %s, %s::jsonb)
-            """,
-            (str(uuid.uuid4()), memory_id, operation, actor, request_id, json.dumps(payload)),
-        )
+        *,
+        tenant_id: str | None = None,
+        namespace: str | None = None,
+        archive_before: str = "30 days",
+        delete_before: str | None = None,
+        min_access_count: int = 1,
+    ) -> dict[str, int]:
+        with self.pool.connection() as conn:
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT archived_count, deleted_count
+                        FROM active_memory.apply_decay(
+                            %s, %s, %s::interval, %s::interval, %s
+                        )
+                        """,
+                        (tenant_id, namespace, archive_before, delete_before, min_access_count),
+                    )
+                    row = cur.fetchone()
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+        return {"archived_count": int(row[0]), "deleted_count": int(row[1])}
 
     @staticmethod
     def _record_from_row(row: tuple[Any, ...]) -> MemoryRecord:

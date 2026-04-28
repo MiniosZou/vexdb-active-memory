@@ -126,3 +126,31 @@ Optional:
 - `memory_type`
 - `limit`
 - `metadata_filter`
+
+### vexdb_memory_resolve_conflict
+
+Applies an LLM or reviewer decision to a queued conflict.
+
+Required:
+
+- `conflict_id`
+- `decision`: one of `update`, `append`, or `reject`
+
+Optional:
+
+- `actor`
+- `request_id`
+- `metadata`
+
+### vexdb_memory_apply_decay
+
+Runs the automatic forgetting curve. It archives stale, low-importance memories
+and can optionally mark old archived memories as deleted.
+
+Optional:
+
+- `tenant_id`
+- `namespace`
+- `archive_before`
+- `delete_before`
+- `min_access_count`

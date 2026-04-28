@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS active_memory.memories (
     access_count BIGINT NOT NULL DEFAULT 0,
     reinforce_count BIGINT NOT NULL DEFAULT 0,
     duplicate_count BIGINT NOT NULL DEFAULT 0,
-    status TEXT NOT NULL DEFAULT 'active',
+    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'archived', 'deleted')),
     valid_from TIMESTAMPTZ,
     valid_until TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -53,14 +53,36 @@ CREATE TABLE IF NOT EXISTS active_memory.conflict_queue (
     conflict_id UUID PRIMARY KEY,
     old_memory_id UUID NOT NULL REFERENCES active_memory.memories(id) ON DELETE CASCADE,
     candidate_content TEXT NOT NULL,
+    candidate_canonical_text TEXT NOT NULL,
+    candidate_content_hash TEXT NOT NULL,
     candidate_embedding floatvector(1024) NOT NULL,
     candidate_metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
     distance NUMERIC(8,6) NOT NULL,
-    status TEXT NOT NULL DEFAULT 'pending',
-    decision TEXT,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'resolved')),
+    decision TEXT CHECK (decision IS NULL OR decision IN ('update', 'append', 'reject')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     decided_at TIMESTAMPTZ
 );
+
+ALTER TABLE active_memory.conflict_queue
+ADD COLUMN IF NOT EXISTS candidate_canonical_text TEXT;
+
+ALTER TABLE active_memory.conflict_queue
+ADD COLUMN IF NOT EXISTS candidate_content_hash TEXT;
+
+UPDATE active_memory.conflict_queue
+SET candidate_canonical_text = lower(candidate_content)
+WHERE candidate_canonical_text IS NULL;
+
+UPDATE active_memory.conflict_queue
+SET candidate_content_hash = md5(lower(candidate_content))
+WHERE candidate_content_hash IS NULL;
+
+ALTER TABLE active_memory.conflict_queue
+ALTER COLUMN candidate_canonical_text SET NOT NULL;
+
+ALTER TABLE active_memory.conflict_queue
+ALTER COLUMN candidate_content_hash SET NOT NULL;
 
 CREATE TABLE IF NOT EXISTS active_memory.memory_links (
     link_id UUID PRIMARY KEY,
@@ -82,4 +104,3 @@ CREATE TABLE IF NOT EXISTS active_memory.policies (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-

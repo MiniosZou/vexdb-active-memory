@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from vexdb_active_memory import ActiveMemoryClient, ActiveMemoryConfig
+from vexdb_active_memory.cli import SQL_FILES
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -13,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 @pytest.mark.skipif(not os.getenv("VEXDB_DSN"), reason="VEXDB_DSN is not set")
 def test_add_and_search_against_vexdb():
     dsn = os.environ["VEXDB_DSN"]
-    for name in ["001_schema.sql", "002_functions.sql", "003_triggers.sql", "004_indexes.sql"]:
+    for name in SQL_FILES:
         subprocess.run(["psql", dsn, "-f", str(ROOT / "sql" / name)], check=True)
 
     config = ActiveMemoryConfig(
@@ -40,4 +41,3 @@ def test_add_and_search_against_vexdb():
         assert result.memories
     finally:
         client.close()
-

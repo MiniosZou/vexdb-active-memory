@@ -17,6 +17,7 @@ SQL_FILES = [
     "002_functions.sql",
     "003_triggers.sql",
     "004_indexes.sql",
+    "005_plpython_hooks.sql",
 ]
 
 

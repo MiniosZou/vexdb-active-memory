@@ -83,12 +83,16 @@ Expected MCP tools:
 - `vexdb_memory_status`
 - `vexdb_memory_add`
 - `vexdb_memory_search`
+- `vexdb_memory_resolve_conflict`
+- `vexdb_memory_apply_decay`
 
 OpenClaw exposes them with the MCP server prefix:
 
 - `vexdb-active-memory__vexdb_memory_status`
 - `vexdb-active-memory__vexdb_memory_add`
 - `vexdb-active-memory__vexdb_memory_search`
+- `vexdb-active-memory__vexdb_memory_resolve_conflict`
+- `vexdb-active-memory__vexdb_memory_apply_decay`
 
 If those names appear in OpenClaw's tool list but the agent responds with an
 incomplete-message or session-level error instead of calling the tool, verify
