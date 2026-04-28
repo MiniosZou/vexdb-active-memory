@@ -10,6 +10,8 @@ class MemoryRecord:
     id: str
     content: str
     metadata: dict[str, Any] = field(default_factory=dict)
+    tags: list[str] = field(default_factory=list)
+    space_path: str = "global"
     tenant_id: str = "default"
     namespace: str = "default"
     scope: str = "global"
@@ -32,4 +34,3 @@ class SearchResult:
             "documents": [[memory.content for memory in self.memories]],
             "metadatas": [[memory.metadata for memory in self.memories]],
         }
-

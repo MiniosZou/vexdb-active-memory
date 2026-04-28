@@ -115,4 +115,7 @@ def test_upsert_returns_database_action_and_conflict_metadata():
         "action": "inserted",
         "conflict_id": None,
         "nearest_distance": None,
+        "importance": 3,
+        "tags": [],
+        "space_path": "global",
     }

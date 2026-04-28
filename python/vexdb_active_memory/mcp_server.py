@@ -74,8 +74,10 @@ def tool_add(
     source: str | None = None,
     actor: str | None = None,
     subject: str | None = None,
-    importance: int = 3,
+    importance: int | None = None,
     confidence: float = 1.0,
+    tags: list[str] | None = None,
+    space_path: str = "global",
 ) -> dict[str, Any]:
     result = _get_client().upsert(
         content,
@@ -89,6 +91,8 @@ def tool_add(
         subject=subject,
         importance=importance,
         confidence=confidence,
+        tags=tags,
+        space_path=space_path,
     )
     return result
 
@@ -101,6 +105,8 @@ def tool_search(
     memory_type: str | None = None,
     limit: int = 5,
     metadata_filter: dict[str, Any] | None = None,
+    tags: list[str] | None = None,
+    space_path: str | None = None,
 ) -> dict[str, Any]:
     result = _get_client().search(
         query,
@@ -110,6 +116,8 @@ def tool_search(
         memory_type=memory_type,
         limit=limit,
         metadata_filter=metadata_filter,
+        tags=tags,
+        space_path=space_path,
     )
     return {
         "memories": [
@@ -117,6 +125,8 @@ def tool_search(
                 "id": item.id,
                 "content": item.content,
                 "metadata": item.metadata,
+                "tags": item.tags,
+                "space_path": item.space_path,
                 "distance": item.distance,
                 "tenant_id": item.tenant_id,
                 "namespace": item.namespace,
@@ -194,6 +204,8 @@ TOOLS: dict[str, dict[str, Any]] = {
                 "scope": {"type": "string", "description": "Memory scope, such as global, user id, or session id."},
                 "memory_type": {"type": "string", "description": "Memory category such as fact, preference, task, or note."},
                 "metadata": {"type": "object", "description": "Small JSON metadata object for filtering and provenance."},
+                "tags": {"type": "array", "description": "Optional normalized memory tags."},
+                "space_path": {"type": "string", "description": "Hierarchical memory space path, such as wing/room."},
                 "source": {"type": "string", "description": "Source system or document identifier."},
                 "actor": {"type": "string", "description": "Agent or user writing the memory."},
                 "subject": {"type": "string", "description": "Entity the memory is about."},
@@ -220,6 +232,8 @@ TOOLS: dict[str, dict[str, Any]] = {
                 "memory_type": {"type": "string", "description": "Optional memory category filter."},
                 "limit": {"type": "integer", "description": "Maximum number of memories to return, capped at 100."},
                 "metadata_filter": {"type": "object", "description": "JSON metadata containment filter."},
+                "tags": {"type": "array", "description": "Require memories to contain these tags."},
+                "space_path": {"type": "string", "description": "Optional hierarchical memory space path filter."},
             },
             "required": ["query"],
             "additionalProperties": False,
@@ -301,6 +315,8 @@ def _coerce_args(args: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any]
                 if key in {"content", "query"} and not value.strip():
                     raise ValueError(f"Invalid value for {key}")
             elif declared == "object" and not isinstance(value, dict):
+                raise ValueError(f"Invalid value for {key}")
+            elif declared == "array" and not isinstance(value, list):
                 raise ValueError(f"Invalid value for {key}")
             if declared == "integer" and not isinstance(value, int):
                 clean[key] = int(value)

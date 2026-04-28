@@ -37,6 +37,18 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP FUNCTION IF EXISTS active_memory.search_memory(TEXT, TEXT, TEXT, floatvector, INTEGER, TEXT);
+DROP FUNCTION IF EXISTS active_memory.upsert_memory(
+    UUID, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, floatvector, JSONB,
+    TEXT, TEXT, TEXT, INTEGER, NUMERIC, DOUBLE PRECISION, DOUBLE PRECISION,
+    BIGINT, TEXT
+);
+DROP FUNCTION IF EXISTS active_memory.upsert_memory(
+    UUID, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, floatvector, JSONB, JSONB,
+    TEXT, TEXT, TEXT, TEXT, INTEGER, NUMERIC, DOUBLE PRECISION, DOUBLE PRECISION,
+    DOUBLE PRECISION, INTEGER, BIGINT, TEXT
+);
+
 CREATE OR REPLACE FUNCTION active_memory.search_memory(
     p_tenant_id TEXT,
     p_namespace TEXT,
@@ -49,6 +61,8 @@ RETURNS TABLE (
     id UUID,
     content TEXT,
     metadata JSONB,
+    tags JSONB,
+    space_path TEXT,
     distance DOUBLE PRECISION,
     tenant_id TEXT,
     namespace TEXT,
@@ -65,6 +79,8 @@ BEGIN
         m.id,
         m.content,
         m.metadata,
+        m.tags,
+        m.space_path,
         (m.embedding <=> p_embedding)::DOUBLE PRECISION AS distance,
         m.tenant_id,
         m.namespace,
@@ -111,6 +127,8 @@ CREATE OR REPLACE FUNCTION active_memory.upsert_memory(
     p_content_hash TEXT,
     p_embedding floatvector,
     p_metadata JSONB DEFAULT '{}'::jsonb,
+    p_tags JSONB DEFAULT '[]'::jsonb,
+    p_space_path TEXT DEFAULT 'global',
     p_source TEXT DEFAULT NULL,
     p_actor TEXT DEFAULT NULL,
     p_subject TEXT DEFAULT NULL,
@@ -118,6 +136,8 @@ CREATE OR REPLACE FUNCTION active_memory.upsert_memory(
     p_confidence NUMERIC DEFAULT 1.0,
     p_dedup_distance DOUBLE PRECISION DEFAULT 0.05,
     p_conflict_distance DOUBLE PRECISION DEFAULT 0.12,
+    p_auto_link_distance DOUBLE PRECISION DEFAULT 0.18,
+    p_auto_link_limit INTEGER DEFAULT 5,
     p_lock_key BIGINT DEFAULT NULL,
     p_request_id TEXT DEFAULT NULL
 )
@@ -161,6 +181,11 @@ BEGIN
             || COALESCE(p_metadata, '{}'::jsonb);
         UPDATE active_memory.memories
         SET metadata = v_new_metadata,
+            tags = CASE
+                WHEN jsonb_array_length(COALESCE(p_tags, '[]'::jsonb)) > 0 THEN p_tags
+                ELSE tags
+            END,
+            space_path = COALESCE(NULLIF(p_space_path, ''), space_path),
             duplicate_count = duplicate_count + 1,
             access_count = access_count + 1
         WHERE id = v_existing.id;
@@ -212,6 +237,11 @@ BEGIN
             content_hash = p_content_hash,
             embedding = p_embedding,
             metadata = v_new_metadata,
+            tags = CASE
+                WHEN jsonb_array_length(COALESCE(p_tags, '[]'::jsonb)) > 0 THEN p_tags
+                ELSE tags
+            END,
+            space_path = COALESCE(NULLIF(p_space_path, ''), space_path),
             duplicate_count = duplicate_count + 1,
             access_count = access_count + 1
         WHERE id = v_nearest.id;
@@ -264,13 +294,16 @@ BEGIN
 
     INSERT INTO active_memory.memories(
         id, tenant_id, namespace, scope, memory_type, content,
-        canonical_text, content_hash, embedding, metadata, source,
+        canonical_text, content_hash, embedding, metadata, tags, space_path, source,
         actor, subject, importance, confidence
     ) VALUES (
         p_id, p_tenant_id, p_namespace, p_scope, p_memory_type, p_content,
-        p_canonical_text, p_content_hash, p_embedding, COALESCE(p_metadata, '{}'::jsonb), p_source,
+        p_canonical_text, p_content_hash, p_embedding, COALESCE(p_metadata, '{}'::jsonb),
+        COALESCE(p_tags, '[]'::jsonb), COALESCE(NULLIF(p_space_path, ''), 'global'), p_source,
         p_actor, p_subject, p_importance, p_confidence
     );
+
+    PERFORM active_memory.link_related_memories(p_id, p_auto_link_distance, p_auto_link_limit);
 
     PERFORM active_memory.log_event(
         active_memory.random_uuid(), p_id, 'ADD', p_actor, p_request_id,
@@ -286,6 +319,50 @@ BEGIN
         nearest_distance := NULL;
     END IF;
     RETURN NEXT;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION active_memory.link_related_memories(
+    p_memory_id UUID,
+    p_max_distance DOUBLE PRECISION DEFAULT 0.18,
+    p_limit INTEGER DEFAULT 5
+)
+RETURNS INTEGER AS $$
+DECLARE
+    v_count INTEGER := 0;
+BEGIN
+    INSERT INTO active_memory.memory_links(
+        link_id, source_memory_id, target_memory_id, link_type, weight, metadata
+    )
+    SELECT
+        active_memory.random_uuid(),
+        src.id,
+        target.id,
+        'semantic_related',
+        GREATEST(0, 1 - ((target.embedding <=> src.embedding)::numeric)),
+        ('{"reason":"auto_semantic_link","distance":"'
+            || ((target.embedding <=> src.embedding)::DOUBLE PRECISION)::TEXT || '"}')::jsonb
+    FROM active_memory.memories src
+    JOIN active_memory.memories target
+      ON target.id <> src.id
+     AND target.tenant_id = src.tenant_id
+     AND target.namespace = src.namespace
+     AND target.scope = src.scope
+     AND target.status = 'active'
+     AND (target.embedding <=> src.embedding) <= p_max_distance
+    WHERE src.id = p_memory_id
+      AND NOT EXISTS (
+          SELECT 1
+          FROM active_memory.memory_links existing
+          WHERE existing.source_memory_id = src.id
+            AND existing.target_memory_id = target.id
+            AND existing.link_type = 'semantic_related'
+      )
+    ORDER BY target.embedding <=> src.embedding
+    LIMIT GREATEST(1, p_limit);
+
+    GET DIAGNOSTICS v_count = ROW_COUNT;
+    RETURN v_count;
 END;
 $$ LANGUAGE plpgsql;
 
@@ -352,16 +429,18 @@ BEGIN
         v_new_metadata := v_conflict.candidate_metadata || COALESCE(p_metadata, '{}'::jsonb);
         INSERT INTO active_memory.memories(
             id, tenant_id, namespace, scope, memory_type, content,
-            canonical_text, content_hash, embedding, metadata, source,
+            canonical_text, content_hash, embedding, metadata, tags, space_path, source,
             actor, subject, importance, confidence
         )
         SELECT
             v_new_id, tenant_id, namespace, scope, memory_type, v_conflict.candidate_content,
             v_conflict.candidate_canonical_text, v_conflict.candidate_content_hash,
-            v_conflict.candidate_embedding, v_new_metadata,
+            v_conflict.candidate_embedding, v_new_metadata, tags, space_path,
             source, p_actor, subject, importance, confidence
         FROM active_memory.memories
         WHERE id = v_conflict.old_memory_id;
+
+        PERFORM active_memory.link_related_memories(v_new_id);
 
         INSERT INTO active_memory.memory_versions(
             version_id, memory_id, old_content, new_content,

@@ -11,6 +11,8 @@ CREATE TABLE IF NOT EXISTS active_memory.memories (
     content_hash TEXT NOT NULL,
     embedding floatvector(1024) NOT NULL,
     metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+    tags JSONB NOT NULL DEFAULT '[]'::jsonb,
+    space_path TEXT NOT NULL DEFAULT 'global',
     source TEXT,
     actor TEXT,
     subject TEXT,
@@ -27,6 +29,48 @@ CREATE TABLE IF NOT EXISTS active_memory.memories (
     last_accessed_at TIMESTAMPTZ,
     expires_at TIMESTAMPTZ
 );
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'active_memory'
+          AND table_name = 'memories'
+          AND column_name = 'tags'
+    ) THEN
+        ALTER TABLE active_memory.memories ADD COLUMN tags JSONB DEFAULT '[]'::jsonb;
+    END IF;
+END;
+$$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'active_memory'
+          AND table_name = 'memories'
+          AND column_name = 'space_path'
+    ) THEN
+        ALTER TABLE active_memory.memories ADD COLUMN space_path TEXT DEFAULT 'global';
+    END IF;
+END;
+$$;
+
+UPDATE active_memory.memories
+SET tags = '[]'::jsonb
+WHERE tags IS NULL;
+
+UPDATE active_memory.memories
+SET space_path = 'global'
+WHERE space_path IS NULL;
+
+ALTER TABLE active_memory.memories
+ALTER COLUMN tags SET NOT NULL;
+
+ALTER TABLE active_memory.memories
+ALTER COLUMN space_path SET NOT NULL;
 
 CREATE TABLE IF NOT EXISTS active_memory.memory_versions (
     version_id UUID PRIMARY KEY,
@@ -114,6 +158,19 @@ CREATE TABLE IF NOT EXISTS active_memory.memory_links (
     weight NUMERIC(6,3) NOT NULL DEFAULT 1.0,
     metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS active_memory.memory_spaces (
+    space_id UUID PRIMARY KEY,
+    tenant_id TEXT NOT NULL DEFAULT 'default',
+    namespace TEXT NOT NULL DEFAULT 'default',
+    space_path TEXT NOT NULL,
+    space_type TEXT NOT NULL DEFAULT 'room' CHECK (space_type IN ('wing', 'room', 'collection')),
+    parent_space_path TEXT,
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE(tenant_id, namespace, space_path)
 );
 
 CREATE TABLE IF NOT EXISTS active_memory.policies (

@@ -7,6 +7,7 @@ from typing import Any
 from .config import ActiveMemoryConfig
 from .db import ConnectionPool, vector_literal
 from .embedding import EmbeddingProvider, provider_from_config
+from .intelligence import auto_conflict_decision, estimate_importance, normalize_tags
 from .models import MemoryRecord, SearchResult
 from .normalize import advisory_lock_key, canonicalize, content_hash
 
@@ -72,8 +73,10 @@ class ActiveMemoryClient:
         source: str | None = None,
         actor: str | None = None,
         subject: str | None = None,
-        importance: int = 3,
+        importance: int | None = None,
         confidence: float = 1.0,
+        tags: list[str] | None = None,
+        space_path: str = "global",
         request_id: str | None = None,
     ) -> str:
         return self.upsert(
@@ -88,8 +91,46 @@ class ActiveMemoryClient:
             subject=subject,
             importance=importance,
             confidence=confidence,
+            tags=tags,
+            space_path=space_path,
             request_id=request_id,
         )["id"]
+
+    def add_many(
+        self,
+        items: list[str | dict[str, Any]],
+        *,
+        tenant_id: str = "default",
+        namespace: str = "default",
+        scope: str = "global",
+        memory_type: str = "fact",
+        actor: str | None = None,
+    ) -> list[dict[str, Any]]:
+        results: list[dict[str, Any]] = []
+        for item in items:
+            if isinstance(item, str):
+                results.append(
+                    self.upsert(item, tenant_id=tenant_id, namespace=namespace, scope=scope, memory_type=memory_type, actor=actor)
+                )
+            else:
+                payload = dict(item)
+                text = payload.pop("content")
+                results.append(
+                    self.upsert(
+                        text,
+                        tenant_id=payload.pop("tenant_id", tenant_id),
+                        namespace=payload.pop("namespace", namespace),
+                        scope=payload.pop("scope", scope),
+                        memory_type=payload.pop("memory_type", memory_type),
+                        actor=payload.pop("actor", actor),
+                        metadata=payload.pop("metadata", None),
+                        tags=payload.pop("tags", None),
+                        space_path=payload.pop("space_path", "global"),
+                        importance=payload.pop("importance", None),
+                        confidence=payload.pop("confidence", 1.0),
+                    )
+                )
+        return results
 
     def upsert(
         self,
@@ -103,15 +144,21 @@ class ActiveMemoryClient:
         source: str | None = None,
         actor: str | None = None,
         subject: str | None = None,
-        importance: int = 3,
+        importance: int | None = None,
         confidence: float = 1.0,
+        tags: list[str] | None = None,
+        space_path: str = "global",
         request_id: str | None = None,
     ) -> dict[str, Any]:
+        metadata = metadata or {}
+        tag_values = normalize_tags(tags)
+        score = estimate_importance(text, metadata) if importance is None else importance
         canonical = canonicalize(text)
         digest = content_hash(canonical)
         embedding = self.embedding_provider.embed([text])[0]
         vec = vector_literal(embedding)
-        metadata_json = json.dumps(metadata or {}, ensure_ascii=False)
+        metadata_json = json.dumps(metadata, ensure_ascii=False)
+        tags_json = json.dumps(tag_values, ensure_ascii=False)
         lock_key = advisory_lock_key(tenant_id, namespace, scope, canonical[:512])
 
         with self.pool.connection() as conn:
@@ -123,7 +170,7 @@ class ActiveMemoryClient:
                         SELECT memory_id, action, conflict_id, nearest_distance
                         FROM active_memory.upsert_memory(
                             %s, %s, %s, %s, %s, %s, %s, %s, %s::floatvector,
-                            %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                            %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                         )
                         """,
                         (
@@ -137,25 +184,46 @@ class ActiveMemoryClient:
                             digest,
                             vec,
                             metadata_json,
+                            tags_json,
+                            space_path,
                             source,
                             actor,
                             subject,
-                            importance,
+                            score,
                             confidence,
                             self.config.dedup_distance,
                             self.config.conflict_distance,
+                            self.config.auto_link_distance,
+                            self.config.auto_link_limit,
                             lock_key,
                             request_id,
                         ),
                     )
                     row = cur.fetchone()
                 conn.commit()
-                return {
+                result = {
                     "id": _uuid_text(row[0]),
                     "action": row[1],
                     "conflict_id": _uuid_text(row[2]) if row[2] else None,
                     "nearest_distance": float(row[3]) if row[3] is not None else None,
+                    "importance": score,
+                    "tags": tag_values,
+                    "space_path": space_path,
                 }
+                if result["conflict_id"] and self.config.auto_resolve_conflicts:
+                    decision = auto_conflict_decision(
+                        self.config.auto_resolve_policy,
+                        nearest_distance=result["nearest_distance"],
+                    )
+                    if decision:
+                        result["auto_resolution"] = self.resolve_conflict(
+                            result["conflict_id"],
+                            decision,
+                            actor=actor,
+                            request_id=request_id,
+                            metadata={"auto_policy": self.config.auto_resolve_policy},
+                        )
+                return result
             except Exception:
                 conn.rollback()
                 raise
@@ -170,6 +238,8 @@ class ActiveMemoryClient:
         memory_type: str | None = None,
         limit: int = 5,
         metadata_filter: dict[str, Any] | None = None,
+        tags: list[str] | None = None,
+        space_path: str | None = None,
     ) -> SearchResult:
         embedding = self.embedding_provider.embed([query])[0]
         vec = vector_literal(embedding)
@@ -181,6 +251,13 @@ class ActiveMemoryClient:
         if metadata_filter:
             metadata_clause += " AND metadata @> %s::jsonb"
             params.append(json.dumps(metadata_filter, ensure_ascii=False))
+        tag_values = normalize_tags(tags)
+        if tag_values:
+            metadata_clause += " AND tags @> %s::jsonb"
+            params.append(json.dumps(tag_values, ensure_ascii=False))
+        if space_path:
+            metadata_clause += " AND space_path = %s"
+            params.append(space_path)
         params.append(max(1, min(limit, 100)))
 
         with self.pool.connection() as conn:
@@ -188,7 +265,7 @@ class ActiveMemoryClient:
                 with conn.cursor() as cur:
                     cur.execute(
                         f"""
-                        SELECT id, content, metadata, embedding <=> %s::floatvector AS distance,
+                        SELECT id, content, metadata, tags, space_path, embedding <=> %s::floatvector AS distance,
                                tenant_id, namespace, scope, memory_type, importance,
                                confidence, access_count, updated_at
                         FROM active_memory.memories
@@ -280,13 +357,15 @@ class ActiveMemoryClient:
             id=_uuid_text(row[0]),
             content=row[1],
             metadata=metadata,
-            distance=float(row[3]) if row[3] is not None else None,
-            tenant_id=row[4],
-            namespace=row[5],
-            scope=row[6],
-            memory_type=row[7],
-            importance=row[8],
-            confidence=float(row[9]),
-            access_count=row[10],
-            updated_at=row[11],
+            tags=row[3] or [],
+            space_path=row[4] or "global",
+            distance=float(row[5]) if row[5] is not None else None,
+            tenant_id=row[6],
+            namespace=row[7],
+            scope=row[8],
+            memory_type=row[9],
+            importance=row[10],
+            confidence=float(row[11]),
+            access_count=row[12],
+            updated_at=row[13],
         )

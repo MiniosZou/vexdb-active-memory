@@ -10,6 +10,9 @@ ON active_memory.memories(tenant_id, namespace, memory_type, status);
 CREATE INDEX IF NOT EXISTS memories_lifecycle_idx
 ON active_memory.memories(status, expires_at, updated_at, access_count);
 
+CREATE INDEX IF NOT EXISTS memories_space_idx
+ON active_memory.memories(tenant_id, namespace, space_path, status);
+
 DO $$
 BEGIN
     BEGIN

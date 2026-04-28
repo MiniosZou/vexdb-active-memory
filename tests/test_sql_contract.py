@@ -27,7 +27,18 @@ def test_database_native_memory_management_functions_exist():
     assert "'ADD'" in functions
     assert "'RESOLVE'" in functions
     assert "llm_conflict_append" in functions
+    assert "active_memory.link_related_memories" in functions
     assert "jsonb_build_object" not in functions
+
+
+def test_schema_declares_tags_spaces_and_auto_links():
+    schema = (ROOT / "sql" / "001_schema.sql").read_text(encoding="utf-8")
+    indexes = (ROOT / "sql" / "004_indexes.sql").read_text(encoding="utf-8")
+    assert "tags JSONB NOT NULL DEFAULT '[]'::jsonb" in schema
+    assert "space_path TEXT NOT NULL DEFAULT 'global'" in schema
+    assert "active_memory.memory_spaces" in schema
+    assert "space_type IN ('wing', 'room', 'collection')" in schema
+    assert "memories_space_idx" in indexes
 
 
 def test_memory_versions_record_final_state_metadata():

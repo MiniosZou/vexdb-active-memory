@@ -12,8 +12,10 @@ Only the first two layers are required. Services and connectors are replaceable.
 ## Versioned Scope
 
 v0.1 is the current MVP. It includes the SQL core, Python SDK, stdio MCP server,
-OpenClaw/Hermes setup helpers, semantic upsert, conflict queue resolution, and
-manual forgetting-curve execution.
+OpenClaw/Hermes setup helpers, semantic upsert, conflict queue resolution,
+optional policy-driven auto resolution, hierarchical `space_path` organization,
+multi-tag filtering, automatic importance scoring, automatic semantic links,
+and manual forgetting-curve execution.
 
 v0.2 must add repeatable VexDB-backed conflict/decay verification and publish
 clear performance baselines for write, search, conflict resolution, and decay.
@@ -25,7 +27,9 @@ review gate that writes `update`, `append`, or `reject` decisions into
 v1.0 should add production SLOs, observability reports, packaging, and upgrade
 guides. REST API, background schedulers, web admin UI, and cross-database
 connectors are out of v0.1 scope unless a downstream project owns them as thin
-adapters.
+adapters. VexDB remains the primary database. PostgreSQL/pgvector compatibility
+may be added as a portability adapter, but it must not dilute the
+database-native VexDB positioning.
 
 ## Write Path
 
@@ -36,13 +40,15 @@ adapters.
 5. The database takes a transaction-level advisory lock for the namespace and canonical text.
 6. The database searches nearby active memories inside the same tenant/namespace/scope.
 7. The database merges, queues conflict, or inserts.
-8. The database records memory events and versions.
-9. Commit.
+8. New inserts can create `semantic_related` rows in `memory_links`.
+9. The database records memory events and versions.
+10. Commit.
 
 ## Retrieval Path
 
 1. Generate query embedding.
-2. Filter by tenant, namespace, scope, memory type, status, metadata, and time.
+2. Filter by tenant, namespace, scope, memory type, tags, space path, status,
+   metadata, and time.
 3. Sort by vector distance.
 4. Update access counters for returned memories.
 5. Return stable dictionaries to callers.
@@ -54,6 +60,11 @@ adapters.
 2. An LLM, reviewer, or policy engine decides `update`, `append`, or `reject`.
 3. `active_memory.resolve_conflict(...)` applies that decision atomically and
    records an event.
+
+The SDK can optionally auto-resolve queued conflicts with an explicit policy
+(`manual`, `heuristic`, `update`, `append`, or `reject`). Production LLM use
+should keep a quality gate around this policy so low-confidence decisions stay
+pending for review.
 
 Quality gates for LLM adjudication:
 

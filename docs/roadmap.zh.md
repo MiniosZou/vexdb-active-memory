@@ -114,3 +114,23 @@ v0.3 前不得把 LLM 裁决宣传为完全自动生产能力。进入生产口�
 - 计划和资源：里程碑、RACI、风险预案完整。
 - 技术和设计：核心链路闭环，真实 VexDB 验收命令可执行。
 - 文档一致性：README、architecture、test-specs、verification 口径一致。
+
+## 9. 最新功能评审状态
+
+本轮改进后，项目继续坚持 VexDB 原生主线，不引入 Mem0、MemPalace、LangChain 或其他记忆体框架作为运行依赖。
+
+已落地：
+
+- P0：冲突自动裁决开关已加入 SDK，可通过策略自动调用 `resolve_conflict(...)`；真实 OpenClaw/MCP 路径已验证 queued conflict -> auto resolution。
+- P0：记忆重要性自动评分已加入 SDK，未传 `importance` 时自动估算。
+- P1：批量写入 `add_many(...)` 已加入 SDK。
+- P1：标签/分类已加入 `tags` 字段并支持 MCP/SDK 检索过滤。
+- P1：记忆组织层已加入 `space_path` 和 `memory_spaces`，为 Wings/Rooms/Collections 做数据库侧承载。
+- P1：自动记忆关联已加入 `link_related_memories(...)`，写入后可生成 `semantic_related` 链接。
+
+仍按后续版本推进：
+
+- PostgreSQL/pgvector：定位为兼容适配包，不替换 VexDB；需要单独 SQL 方言、测试矩阵和迁移说明。
+- REST API：保持 P1 路线，不进入当前 v0.1 核心包。
+- 冲突样本集报表：需要 fixture、人工标注标准和准确率统计脚本。
+- AAAK 压缩、Web 审核台、容器化完整测试环境：列入 P2 或独立子项目。

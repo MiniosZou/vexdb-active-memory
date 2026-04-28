@@ -43,6 +43,20 @@ Additional MCP runtime verification on 2026-04-28:
   agent/session behavior, so MCP discovery and direct tool-call checks should
   be used as the integration source of truth.
 
+Additional OpenClaw/VexDB verification on 2026-04-28:
+
+- OpenClaw stdio MCP inserted two records with `tags` and hierarchical
+  `space_path`.
+- Search with tag filters and `space_path` filters returned the expected
+  records from the local VexDB database.
+- Optional automatic conflict resolution was tested with a queued conflict and
+  `VEXDB_MEMORY_AUTO_RESOLVE_CONFLICTS=true`; the second write returned
+  `auto_resolution` and the database recorded `RESOLVE` events.
+- Automatic semantic linking was exercised through
+  `active_memory.link_related_memories(...)`; `memory_links` contains
+  `semantic_related` rows after insertion.
+- Current unit/contract suite: `38 passed, 1 skipped`.
+
 Sanitized evidence snippets from the verified local machine:
 
 ```text
@@ -72,7 +86,8 @@ ok: true
 result_count: 1
 
 vexdb-memory conflict-decay-test
-ok: true is required before production conflict/decay claims
+ok: true
+events: ARCHIVE=1, RESOLVE=1
 ```
 
 These snippets intentionally omit DSNs, passwords, API keys, and full record
