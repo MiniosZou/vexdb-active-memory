@@ -27,6 +27,7 @@ def test_database_native_memory_management_functions_exist():
     assert "'ADD'" in functions
     assert "'RESOLVE'" in functions
     assert "llm_conflict_append" in functions
+    assert "jsonb_build_object" not in functions
 
 
 def test_conflict_and_lifecycle_constraints_are_declared():

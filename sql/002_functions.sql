@@ -166,7 +166,7 @@ BEGIN
 
         PERFORM active_memory.log_event(
             active_memory.random_uuid(), v_existing.id, 'MERGE', p_actor, p_request_id,
-            jsonb_build_object('reason', 'exact_dedup')
+            '{"reason":"exact_dedup"}'::jsonb
         );
 
         memory_id := v_existing.id;
@@ -211,7 +211,7 @@ BEGIN
 
         PERFORM active_memory.log_event(
             active_memory.random_uuid(), v_nearest.id, 'MERGE', p_actor, p_request_id,
-            jsonb_build_object('reason', 'semantic_dedup', 'distance', v_nearest.distance)
+            ('{"reason":"semantic_dedup","distance":' || v_nearest.distance || '}')::jsonb
         );
 
         memory_id := v_nearest.id;
@@ -236,7 +236,7 @@ BEGIN
 
         PERFORM active_memory.log_event(
             active_memory.random_uuid(), v_nearest.id, 'CONFLICT', p_actor, p_request_id,
-            jsonb_build_object('conflict_id', v_conflict_id, 'distance', v_nearest.distance)
+            ('{"conflict_id":"' || v_conflict_id || '","distance":' || v_nearest.distance || '}')::jsonb
         );
 
         memory_id := v_nearest.id;
@@ -259,7 +259,7 @@ BEGIN
 
     PERFORM active_memory.log_event(
         active_memory.random_uuid(), p_id, 'ADD', p_actor, p_request_id,
-        jsonb_build_object('memory_type', p_memory_type)
+        ('{"memory_type":"' || replace(p_memory_type, '"', '\"') || '"}')::jsonb
     );
 
     memory_id := p_id;
@@ -352,7 +352,7 @@ BEGIN
 
         PERFORM active_memory.log_event(
             active_memory.random_uuid(), v_new_id, 'ADD', p_actor, p_request_id,
-            jsonb_build_object('reason', 'llm_conflict_append', 'conflict_id', p_conflict_id)
+            ('{"reason":"llm_conflict_append","conflict_id":"' || p_conflict_id || '"}')::jsonb
         );
 
         memory_id := v_new_id;
@@ -370,7 +370,7 @@ BEGIN
 
     PERFORM active_memory.log_event(
         active_memory.random_uuid(), memory_id, 'RESOLVE', p_actor, p_request_id,
-        jsonb_build_object('conflict_id', p_conflict_id, 'decision', p_decision)
+        ('{"conflict_id":"' || p_conflict_id || '","decision":"' || p_decision || '"}')::jsonb
     );
 
     RETURN NEXT;
@@ -408,7 +408,8 @@ BEGIN
         active_memory.random_uuid(),
         id,
         'ARCHIVE',
-        jsonb_build_object('reason', 'decay', 'archive_before', p_archive_before::text)
+        ('{"reason":"decay","archive_before":"'
+            || replace(p_archive_before::text, '"', '\"') || '"}')::jsonb
     FROM archived;
     GET DIAGNOSTICS v_archived = ROW_COUNT;
 
@@ -427,7 +428,8 @@ BEGIN
             active_memory.random_uuid(),
             id,
             'DELETE',
-            jsonb_build_object('reason', 'decay', 'delete_before', p_delete_before::text)
+            ('{"reason":"decay","delete_before":"'
+                || replace(p_delete_before::text, '"', '\"') || '"}')::jsonb
         FROM deleted;
         GET DIAGNOSTICS v_deleted = ROW_COUNT;
     END IF;

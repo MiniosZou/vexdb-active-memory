@@ -374,18 +374,19 @@ def cmd_conflict_decay_test(args: argparse.Namespace) -> int:
                     (stale_id,),
                 )
                 stale_status = cur.fetchone()[0]
+                resolved_memory_id = resolution["memory_id"]
                 cur.execute(
                     """
                     SELECT operation, count(*)
                     FROM active_memory.memory_events
                     WHERE operation IN ('RESOLVE', 'ARCHIVE')
                       AND (
-                        memory_id IN (%s, %s)
+                        memory_id IN (%s, %s, %s)
                         OR payload->>'conflict_id' = %s
                       )
                     GROUP BY operation
                     """,
-                    (old_id, stale_id, conflict_id),
+                    (old_id, stale_id, resolved_memory_id, conflict_id),
                 )
                 events = {row[0]: int(row[1]) for row in cur.fetchall()}
             conn.commit()
