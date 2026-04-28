@@ -402,7 +402,7 @@ tests/                       Unit, contract, and integration tests
 
 ---
 
-## 设计边界
+## 项目边界
 
 - 不依赖 Mem0、MemPalace、LangChain、LlamaIndex 等外部记忆框架。
 - OpenClaw、Hermes、Codex 等是接入方，不是记忆能力的拥有者。

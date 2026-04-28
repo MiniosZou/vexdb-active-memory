@@ -30,6 +30,18 @@ def test_database_native_memory_management_functions_exist():
     assert "jsonb_build_object" not in functions
 
 
+def test_memory_versions_record_final_state_metadata():
+    functions = (ROOT / "sql" / "002_functions.sql").read_text(encoding="utf-8")
+    assert "v_new_metadata := COALESCE(v_existing.metadata" in functions
+    assert "v_version_id, v_existing.id, v_existing.content, v_existing.content" in functions
+    assert "COALESCE(v_existing.metadata, '{}'::jsonb), v_new_metadata, 'exact_dedup'" in functions
+    assert "COALESCE(v_nearest.metadata, '{}'::jsonb), v_new_metadata, 'semantic_dedup'" in functions
+    assert "COALESCE(v_conflict.old_metadata, '{}'::jsonb)" in functions
+    assert "v_conflict.candidate_metadata" in functions
+    assert "v_new_metadata,\n            'llm_conflict_update'" in functions
+    assert "v_new_metadata,\n            'llm_conflict_append'" in functions
+
+
 def test_conflict_and_lifecycle_constraints_are_declared():
     schema = (ROOT / "sql" / "001_schema.sql").read_text(encoding="utf-8")
     assert "decision IN ('update', 'append', 'reject')" in schema

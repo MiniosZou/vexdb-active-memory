@@ -132,26 +132,35 @@ DECLARE
     v_nearest RECORD;
     v_conflict_id UUID;
     v_version_id UUID;
+    v_has_existing BOOLEAN := false;
+    v_has_nearest BOOLEAN := false;
+    v_new_metadata JSONB;
 BEGIN
     IF p_lock_key IS NOT NULL THEN
         PERFORM pg_advisory_xact_lock(p_lock_key);
     END IF;
 
-    SELECT id, content, metadata
-    INTO v_existing
-    FROM active_memory.memories
-    WHERE tenant_id = p_tenant_id
-      AND namespace = p_namespace
-      AND scope = p_scope
-      AND content_hash = p_content_hash
-      AND status = 'active'
-    LIMIT 1
-    FOR UPDATE;
+    FOR v_existing IN
+        SELECT id, content, metadata
+        FROM active_memory.memories
+        WHERE tenant_id = p_tenant_id
+          AND namespace = p_namespace
+          AND scope = p_scope
+          AND content_hash = p_content_hash
+          AND status = 'active'
+        LIMIT 1
+        FOR UPDATE
+    LOOP
+        v_has_existing := true;
+        EXIT;
+    END LOOP;
 
-    IF FOUND THEN
+    IF v_has_existing THEN
         v_version_id := active_memory.random_uuid();
+        v_new_metadata := COALESCE(v_existing.metadata, '{}'::jsonb)
+            || COALESCE(p_metadata, '{}'::jsonb);
         UPDATE active_memory.memories
-        SET metadata = metadata || COALESCE(p_metadata, '{}'::jsonb),
+        SET metadata = v_new_metadata,
             duplicate_count = duplicate_count + 1,
             access_count = access_count + 1
         WHERE id = v_existing.id;
@@ -160,8 +169,8 @@ BEGIN
             version_id, memory_id, old_content, new_content,
             old_metadata, new_metadata, change_reason
         ) VALUES (
-            v_version_id, v_existing.id, v_existing.content, p_content,
-            COALESCE(v_existing.metadata, '{}'::jsonb), COALESCE(p_metadata, '{}'::jsonb), 'exact_dedup'
+            v_version_id, v_existing.id, v_existing.content, v_existing.content,
+            COALESCE(v_existing.metadata, '{}'::jsonb), v_new_metadata, 'exact_dedup'
         );
 
         PERFORM active_memory.log_event(
@@ -177,26 +186,32 @@ BEGIN
         RETURN;
     END IF;
 
-    SELECT id, content, metadata, (embedding <=> p_embedding)::DOUBLE PRECISION AS distance
-    INTO v_nearest
-    FROM active_memory.memories
-    WHERE tenant_id = p_tenant_id
-      AND namespace = p_namespace
-      AND scope = p_scope
-      AND memory_type = p_memory_type
-      AND status = 'active'
-    ORDER BY embedding <=> p_embedding
-    LIMIT 1
-    FOR UPDATE;
+    FOR v_nearest IN
+        SELECT id, content, metadata, (embedding <=> p_embedding)::DOUBLE PRECISION AS distance
+        FROM active_memory.memories
+        WHERE tenant_id = p_tenant_id
+          AND namespace = p_namespace
+          AND scope = p_scope
+          AND memory_type = p_memory_type
+          AND status = 'active'
+        ORDER BY embedding <=> p_embedding
+        LIMIT 1
+        FOR UPDATE
+    LOOP
+        v_has_nearest := true;
+        EXIT;
+    END LOOP;
 
-    IF FOUND AND v_nearest.distance < p_dedup_distance THEN
+    IF v_has_nearest AND v_nearest.distance < p_dedup_distance THEN
         v_version_id := active_memory.random_uuid();
+        v_new_metadata := COALESCE(v_nearest.metadata, '{}'::jsonb)
+            || COALESCE(p_metadata, '{}'::jsonb);
         UPDATE active_memory.memories
         SET content = p_content,
             canonical_text = p_canonical_text,
             content_hash = p_content_hash,
             embedding = p_embedding,
-            metadata = metadata || COALESCE(p_metadata, '{}'::jsonb),
+            metadata = v_new_metadata,
             duplicate_count = duplicate_count + 1,
             access_count = access_count + 1
         WHERE id = v_nearest.id;
@@ -206,7 +221,7 @@ BEGIN
             old_metadata, new_metadata, change_reason
         ) VALUES (
             v_version_id, v_nearest.id, v_nearest.content, p_content,
-            COALESCE(v_nearest.metadata, '{}'::jsonb), COALESCE(p_metadata, '{}'::jsonb), 'semantic_dedup'
+            COALESCE(v_nearest.metadata, '{}'::jsonb), v_new_metadata, 'semantic_dedup'
         );
 
         PERFORM active_memory.log_event(
@@ -222,7 +237,7 @@ BEGIN
         RETURN;
     END IF;
 
-    IF FOUND AND v_nearest.distance < p_conflict_distance THEN
+    IF v_has_nearest AND v_nearest.distance < p_conflict_distance THEN
         v_conflict_id := active_memory.random_uuid();
         INSERT INTO active_memory.conflict_queue(
             conflict_id, old_memory_id, candidate_content,
@@ -265,7 +280,11 @@ BEGIN
     memory_id := p_id;
     action := 'inserted';
     conflict_id := NULL;
-    nearest_distance := v_nearest.distance;
+    IF v_has_nearest THEN
+        nearest_distance := v_nearest.distance;
+    ELSE
+        nearest_distance := NULL;
+    END IF;
     RETURN NEXT;
 END;
 $$ LANGUAGE plpgsql;
@@ -285,6 +304,7 @@ DECLARE
     v_conflict RECORD;
     v_new_id UUID;
     v_version_id UUID;
+    v_new_metadata JSONB;
 BEGIN
     IF p_decision NOT IN ('update', 'append', 'reject') THEN
         RAISE EXCEPTION 'decision must be update, append, or reject';
@@ -304,14 +324,15 @@ BEGIN
 
     IF p_decision = 'update' THEN
         v_version_id := active_memory.random_uuid();
+        v_new_metadata := COALESCE(v_conflict.old_metadata, '{}'::jsonb)
+            || v_conflict.candidate_metadata
+            || COALESCE(p_metadata, '{}'::jsonb);
         UPDATE active_memory.memories
         SET content = v_conflict.candidate_content,
             canonical_text = v_conflict.candidate_canonical_text,
             content_hash = v_conflict.candidate_content_hash,
             embedding = v_conflict.candidate_embedding,
-            metadata = COALESCE(v_conflict.old_metadata, '{}'::jsonb)
-                || v_conflict.candidate_metadata
-                || COALESCE(p_metadata, '{}'::jsonb)
+            metadata = v_new_metadata
         WHERE id = v_conflict.old_memory_id;
 
         INSERT INTO active_memory.memory_versions(
@@ -320,7 +341,7 @@ BEGIN
         ) VALUES (
             v_version_id, v_conflict.old_memory_id, v_conflict.old_content, v_conflict.candidate_content,
             COALESCE(v_conflict.old_metadata, '{}'::jsonb),
-            v_conflict.candidate_metadata || COALESCE(p_metadata, '{}'::jsonb),
+            v_new_metadata,
             'llm_conflict_update'
         );
 
@@ -328,6 +349,7 @@ BEGIN
         action := 'updated';
     ELSIF p_decision = 'append' THEN
         v_new_id := active_memory.random_uuid();
+        v_new_metadata := v_conflict.candidate_metadata || COALESCE(p_metadata, '{}'::jsonb);
         INSERT INTO active_memory.memories(
             id, tenant_id, namespace, scope, memory_type, content,
             canonical_text, content_hash, embedding, metadata, source,
@@ -336,7 +358,7 @@ BEGIN
         SELECT
             v_new_id, tenant_id, namespace, scope, memory_type, v_conflict.candidate_content,
             v_conflict.candidate_canonical_text, v_conflict.candidate_content_hash,
-            v_conflict.candidate_embedding, v_conflict.candidate_metadata || COALESCE(p_metadata, '{}'::jsonb),
+            v_conflict.candidate_embedding, v_new_metadata,
             source, p_actor, subject, importance, confidence
         FROM active_memory.memories
         WHERE id = v_conflict.old_memory_id;
@@ -346,7 +368,7 @@ BEGIN
             old_metadata, new_metadata, change_reason
         ) VALUES (
             active_memory.random_uuid(), v_new_id, NULL, v_conflict.candidate_content,
-            '{}'::jsonb, v_conflict.candidate_metadata || COALESCE(p_metadata, '{}'::jsonb),
+            '{}'::jsonb, v_new_metadata,
             'llm_conflict_append'
         );
 
