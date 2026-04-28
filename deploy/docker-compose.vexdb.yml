@@ -1,0 +1,16 @@
+services:
+  vexdb:
+    image: shuzhiyinhang/vexdb:3.0.0.28146-amd64
+    container_name: vexdb
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      GS_USERNAME: ${VEXDB_APP_USER:-vexdb}
+      GS_PASSWORD: ${VEXDB_APP_PASSWORD:-change-me}
+      DBCOMPATIBILITY: A
+    volumes:
+      - vexdb-data:/home/postgres/data
+
+volumes:
+  vexdb-data:

@@ -205,7 +205,34 @@ OpenClaw、Hermes 或其他 MCP 客户端都可以接入。
 
 ## 快速开始
 
-### 1. 安装
+### 1. 启动 VexDB
+
+如果本机还没有 VexDB，可以先用 Docker Compose 启动一个本地测试实例：
+
+```bash
+cp deploy/docker-compose.vexdb.yml docker-compose.yml
+VEXDB_APP_PASSWORD='change-me' docker compose up -d
+```
+
+也可以直接用 Docker：
+
+```bash
+docker run -d --name vexdb \
+  -p 5432:5432 \
+  -e GS_USERNAME=vexdb \
+  -e GS_PASSWORD='change-me' \
+  -e DBCOMPATIBILITY=A \
+  shuzhiyinhang/vexdb:3.0.0.28146-amd64
+```
+
+说明：
+
+- `GS_USERNAME` 是运行时应用账号，默认示例为 `vexdb`。
+- `GS_PASSWORD` 是应用账号密码，请在生产环境改成强密码。
+- `DBCOMPATIBILITY=A` 使用本项目验证过的 A 兼容模式。
+- 如果密码里包含 `@`、`:`、`/` 等字符，写入 DSN 时要 URL encode，例如 `@` 写成 `%40`。
+
+### 2. 安装 Active Memory
 
 ```bash
 git clone https://github.com/MiniosZou/vexdb-active-memory.git
@@ -213,7 +240,7 @@ cd vexdb-active-memory
 python -m pip install -e .[dev]
 ```
 
-### 2. 配置环境变量
+### 3. 配置环境变量
 
 ```bash
 export VEXDB_DSN='postgresql://vexdb:<url-encoded-password>@127.0.0.1:5432/vastbase'
@@ -222,7 +249,7 @@ export VEXDB_MEMORY_EMBEDDING_PROVIDER=mock
 
 本地测试可以先用 `mock` embedding。生产环境再切换到 DashScope 等真实 embedding provider。
 
-### 3. 初始化数据库
+### 4. 初始化数据库
 
 初始化 schema 通常需要管理员 DSN 或容器内管理员身份：
 
@@ -230,9 +257,23 @@ export VEXDB_MEMORY_EMBEDDING_PROVIDER=mock
 PYTHONPATH=python python -m vexdb_active_memory.cli bootstrap --grant-to vexdb
 ```
 
-如果使用本项目验证过的 VexDB Docker 容器，也可以在容器内用管理员用户执行 SQL，再给应用用户授权。
+如果使用上面的 VexDB Docker 容器，推荐用容器内 `postgres` 管理员执行 SQL，再给应用用户授权：
 
-### 4. 运行验收
+```bash
+for f in sql/001_schema.sql sql/002_functions.sql sql/003_triggers.sql sql/004_indexes.sql sql/005_plpython_hooks.sql; do
+  docker exec -i -u postgres vexdb /home/postgres/vexdb/bin/psql -d vastbase < "$f"
+done
+
+printf '%s\n' \
+  'GRANT USAGE ON SCHEMA active_memory TO vexdb;' \
+  'GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA active_memory TO vexdb;' \
+  'GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA active_memory TO vexdb;' \
+  'ALTER DEFAULT PRIVILEGES IN SCHEMA active_memory GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO vexdb;' \
+  'ALTER DEFAULT PRIVILEGES IN SCHEMA active_memory GRANT EXECUTE ON FUNCTIONS TO vexdb;' \
+  | docker exec -i -u postgres vexdb /home/postgres/vexdb/bin/psql -d vastbase
+```
+
+### 5. 运行验收
 
 ```bash
 PYTHONPATH=python python -m vexdb_active_memory.cli mcp-smoke

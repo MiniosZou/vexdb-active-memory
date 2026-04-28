@@ -95,20 +95,74 @@ The stdio MCP server exposes:
 
 ## Quick Start
 
+### 1. Start VexDB
+
+If VexDB is not running locally, start a test instance with Docker Compose:
+
+```bash
+cp deploy/docker-compose.vexdb.yml docker-compose.yml
+VEXDB_APP_PASSWORD='change-me' docker compose up -d
+```
+
+Or run Docker directly:
+
+```bash
+docker run -d --name vexdb \
+  -p 5432:5432 \
+  -e GS_USERNAME=vexdb \
+  -e GS_PASSWORD='change-me' \
+  -e DBCOMPATIBILITY=A \
+  shuzhiyinhang/vexdb:3.0.0.28146-amd64
+```
+
+Notes:
+
+- `GS_USERNAME` is the application user.
+- `GS_PASSWORD` must be changed for non-local environments.
+- `DBCOMPATIBILITY=A` is the VexDB mode used by the verified local setup.
+- URL-encode special characters in the password when building `VEXDB_DSN`.
+
+### 2. Install Active Memory
+
 ```bash
 git clone https://github.com/MiniosZou/vexdb-active-memory.git
 cd vexdb-active-memory
 python -m pip install -e .[dev]
+```
 
+### 3. Configure Environment
+
+```bash
 export VEXDB_DSN='postgresql://vexdb:<url-encoded-password>@127.0.0.1:5432/vastbase'
 export VEXDB_MEMORY_EMBEDDING_PROVIDER=mock
 ```
+
+### 4. Bootstrap Schema
 
 Bootstrap the database with an admin-capable account:
 
 ```bash
 PYTHONPATH=python python -m vexdb_active_memory.cli bootstrap --grant-to vexdb
 ```
+
+If using the Docker container above, apply SQL as the container-local
+`postgres` admin user, then grant runtime privileges:
+
+```bash
+for f in sql/001_schema.sql sql/002_functions.sql sql/003_triggers.sql sql/004_indexes.sql sql/005_plpython_hooks.sql; do
+  docker exec -i -u postgres vexdb /home/postgres/vexdb/bin/psql -d vastbase < "$f"
+done
+
+printf '%s\n' \
+  'GRANT USAGE ON SCHEMA active_memory TO vexdb;' \
+  'GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA active_memory TO vexdb;' \
+  'GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA active_memory TO vexdb;' \
+  'ALTER DEFAULT PRIVILEGES IN SCHEMA active_memory GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO vexdb;' \
+  'ALTER DEFAULT PRIVILEGES IN SCHEMA active_memory GRANT EXECUTE ON FUNCTIONS TO vexdb;' \
+  | docker exec -i -u postgres vexdb /home/postgres/vexdb/bin/psql -d vastbase
+```
+
+### 5. Verify
 
 Run verification:
 
