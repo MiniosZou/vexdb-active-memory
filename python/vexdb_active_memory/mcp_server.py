@@ -248,6 +248,23 @@ def tool_resolve_conflict(
     )
 
 
+def tool_list_conflicts(
+    tenant_id: str | None = None,
+    namespace: str | None = None,
+    status: str = "pending",
+    limit: int = 25,
+) -> dict[str, Any]:
+    if status not in {"pending", "resolved"}:
+        raise ValueError("Invalid value for status")
+    conflicts = _get_client().list_conflicts(
+        tenant_id=tenant_id,
+        namespace=namespace,
+        status=status,
+        limit=limit,
+    )
+    return {"conflicts": conflicts}
+
+
 def tool_apply_decay(
     tenant_id: str | None = None,
     namespace: str | None = None,
@@ -432,6 +449,27 @@ TOOLS: dict[str, dict[str, Any]] = {
             "additionalProperties": False,
         },
         "handler": tool_resolve_conflict,
+    },
+    "vexdb_memory_list_conflicts": {
+        "description": (
+            "List queued memory conflicts for manual or LLM review. "
+            "Use this before resolving conflicts when an agent needs pending adjudication work."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "tenant_id": {"type": "string", "description": "Optional tenant partition."},
+                "namespace": {"type": "string", "description": "Optional namespace filter."},
+                "status": {
+                    "type": "string",
+                    "enum": ["pending", "resolved"],
+                    "description": "Conflict status to list.",
+                },
+                "limit": {"type": "integer", "description": "Maximum number of conflicts to return, capped at 100."},
+            },
+            "additionalProperties": False,
+        },
+        "handler": tool_list_conflicts,
     },
     "vexdb_memory_apply_decay": {
         "description": (

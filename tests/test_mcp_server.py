@@ -62,6 +62,16 @@ class FakeClient:
             "avg_distance": 0.07,
         }
 
+    def list_conflicts(self, **kwargs):
+        return [
+            {
+                "conflict_id": "00000000-0000-0000-0000-000000000020",
+                "old_memory_id": "00000000-0000-0000-0000-000000000021",
+                "candidate_content": "candidate",
+                "status": "pending",
+            }
+        ]
+
 
 class FakeMemory:
     def __init__(self, content):
@@ -97,6 +107,7 @@ def test_tools_list_exposes_strict_agent_friendly_schemas():
         "vexdb_memory_search",
         "vexdb_memory_batch_search",
         "vexdb_memory_resolve_conflict",
+        "vexdb_memory_list_conflicts",
         "vexdb_memory_apply_decay",
         "vexdb_memory_graph",
         "vexdb_memory_conflict_report",
@@ -114,6 +125,10 @@ def test_tools_list_exposes_strict_agent_friendly_schemas():
     assert tools["vexdb_memory_batch_add"]["inputSchema"]["required"] == ["items"]
     assert tools["vexdb_memory_batch_search"]["inputSchema"]["required"] == ["queries"]
     assert tools["vexdb_memory_graph"]["inputSchema"]["required"] == ["memory_id"]
+    assert tools["vexdb_memory_list_conflicts"]["inputSchema"]["properties"]["status"]["enum"] == [
+        "pending",
+        "resolved",
+    ]
     assert tools["vexdb_memory_search"]["inputSchema"]["properties"]["tags"]["items"]["type"] == "string"
     assert tools["vexdb_memory_batch_search"]["inputSchema"]["properties"]["queries"]["items"]["type"] == "string"
 
@@ -200,6 +215,21 @@ def test_memory_graph_and_conflict_report_tools(monkeypatch):
     assert report_payload["total_conflicts"] == 3
 
 
+def test_list_conflicts_tool(monkeypatch):
+    monkeypatch.setattr(mcp, "_client", FakeClient())
+    response = mcp._handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": "vexdb_memory_list_conflicts", "arguments": {"status": "pending"}},
+        }
+    )
+    payload = json.loads(response["result"]["content"][0]["text"])
+
+    assert payload["conflicts"][0]["status"] == "pending"
+
+
 def test_tool_call_rejects_unknown_arguments():
     response = mcp._handle_request(
         {
@@ -274,6 +304,7 @@ def test_tool_call_rejects_bad_argument_types_and_ranges():
         {"name": "vexdb_memory_search", "arguments": {"query": "hello", "metadata_filter": "not-object"}},
         {"name": "vexdb_memory_batch_add", "arguments": {"items": []}},
         {"name": "vexdb_memory_batch_search", "arguments": {"queries": ["ok", ""]}},
+        {"name": "vexdb_memory_list_conflicts", "arguments": {"status": "bad"}},
     ]
 
     for params in cases:

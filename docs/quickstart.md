@@ -114,6 +114,7 @@ The MCP server exposes:
 - `vexdb_memory_search`
 - `vexdb_memory_batch_search`
 - `vexdb_memory_resolve_conflict`
+- `vexdb_memory_list_conflicts`
 - `vexdb_memory_apply_decay`
 - `vexdb_memory_graph`
 - `vexdb_memory_conflict_report`

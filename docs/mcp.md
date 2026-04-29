@@ -185,6 +185,17 @@ Optional:
 - `request_id`
 - `metadata`
 
+### vexdb_memory_list_conflicts
+
+Lists queued memory conflicts for manual or LLM review.
+
+Optional:
+
+- `tenant_id`
+- `namespace`
+- `status`
+- `limit`
+
 ### vexdb_memory_apply_decay
 
 Runs the automatic forgetting curve. It archives stale, low-importance memories

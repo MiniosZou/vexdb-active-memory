@@ -86,6 +86,7 @@ Expected MCP tools:
 - `vexdb_memory_search`
 - `vexdb_memory_batch_search`
 - `vexdb_memory_resolve_conflict`
+- `vexdb_memory_list_conflicts`
 - `vexdb_memory_apply_decay`
 - `vexdb_memory_graph`
 - `vexdb_memory_conflict_report`
@@ -98,6 +99,7 @@ OpenClaw exposes them with the MCP server prefix:
 - `vexdb-active-memory__vexdb_memory_search`
 - `vexdb-active-memory__vexdb_memory_batch_search`
 - `vexdb-active-memory__vexdb_memory_resolve_conflict`
+- `vexdb-active-memory__vexdb_memory_list_conflicts`
 - `vexdb-active-memory__vexdb_memory_apply_decay`
 - `vexdb-active-memory__vexdb_memory_graph`
 - `vexdb-active-memory__vexdb_memory_conflict_report`

@@ -39,7 +39,8 @@ def test_database_native_memory_management_functions_exist():
     assert "'RESOLVE'" in functions
     assert "llm_conflict_append" in functions
     assert "active_memory.link_related_memories" in functions
-    assert "jsonb_build_object" not in functions
+    assert "to_json(" in functions
+    assert "' || p_memory_type || '" not in functions
 
 
 def test_schema_declares_tags_spaces_and_auto_links():

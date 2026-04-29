@@ -326,15 +326,27 @@ class ActiveMemoryClient:
                         ),
                     )
                     rows = cur.fetchall()
-                    ids = [row[0] for row in rows]
-                    if ids:
-                        cur.execute("SELECT active_memory.reinforce_memories(%s::uuid[])", (ids,))
                 conn.commit()
             except Exception:
                 conn.rollback()
                 raise
 
+        ids = [row[0] for row in rows]
+        if ids:
+            self._reinforce(ids)
         return SearchResult([self._record_from_row(row) for row in rows])
+
+    def _reinforce(self, ids: list[Any]) -> None:
+        try:
+            with self.pool.connection() as conn:
+                try:
+                    with conn.cursor() as cur:
+                        cur.execute("SELECT active_memory.reinforce_memories(%s::uuid[])", (ids,))
+                    conn.commit()
+                except Exception:
+                    conn.rollback()
+        except Exception:
+            return
 
     def resolve_conflict(
         self,
@@ -364,6 +376,63 @@ class ActiveMemoryClient:
                 conn.rollback()
                 raise
         return {"memory_id": _uuid_text(row[0]), "action": row[1]}
+
+    def list_conflicts(
+        self,
+        *,
+        tenant_id: str | None = None,
+        namespace: str | None = None,
+        status: str = "pending",
+        limit: int = 25,
+    ) -> list[dict[str, Any]]:
+        with self.pool.connection() as conn:
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT q.conflict_id, q.old_memory_id, q.candidate_content,
+                               q.candidate_metadata, q.distance, q.status, q.decision,
+                               q.created_at, m.tenant_id, m.namespace, m.scope, m.memory_type
+                        FROM active_memory.conflict_queue q
+                        JOIN active_memory.memories m ON m.id = q.old_memory_id
+                        WHERE (%s IS NULL OR m.tenant_id = %s)
+                          AND (%s IS NULL OR m.namespace = %s)
+                          AND (%s IS NULL OR q.status = %s)
+                        ORDER BY q.created_at DESC
+                        LIMIT %s
+                        """,
+                        (
+                            tenant_id,
+                            tenant_id,
+                            namespace,
+                            namespace,
+                            status,
+                            status,
+                            max(1, min(limit, 100)),
+                        ),
+                    )
+                    rows = cur.fetchall()
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+        return [
+            {
+                "conflict_id": _uuid_text(row[0]),
+                "old_memory_id": _uuid_text(row[1]),
+                "candidate_content": row[2],
+                "candidate_metadata": row[3] or {},
+                "distance": float(row[4]),
+                "status": row[5],
+                "decision": row[6],
+                "created_at": row[7].isoformat() if row[7] else None,
+                "tenant_id": row[8],
+                "namespace": row[9],
+                "scope": row[10],
+                "memory_type": row[11],
+            }
+            for row in rows
+        ]
 
     def memory_graph(
         self,
