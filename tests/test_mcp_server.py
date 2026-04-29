@@ -39,6 +39,29 @@ class FakeClient:
     def batch_search(self, queries, **kwargs):
         return [FakeSearchResult(query) for query in queries]
 
+    def memory_graph(self, memory_id, **kwargs):
+        return [
+            {
+                "link_id": "00000000-0000-0000-0000-000000000010",
+                "source_memory_id": memory_id,
+                "target_memory_id": "00000000-0000-0000-0000-000000000011",
+                "link_type": "semantic_related",
+                "weight": 0.9,
+                "target_content": "linked memory",
+            }
+        ]
+
+    def conflict_report(self, **kwargs):
+        return {
+            "total_conflicts": 3,
+            "pending_conflicts": 1,
+            "resolved_conflicts": 2,
+            "update_count": 1,
+            "append_count": 1,
+            "reject_count": 0,
+            "avg_distance": 0.07,
+        }
+
 
 class FakeMemory:
     def __init__(self, content):
@@ -75,6 +98,8 @@ def test_tools_list_exposes_strict_agent_friendly_schemas():
         "vexdb_memory_batch_search",
         "vexdb_memory_resolve_conflict",
         "vexdb_memory_apply_decay",
+        "vexdb_memory_graph",
+        "vexdb_memory_conflict_report",
     }
     assert "remember" in tools["vexdb_memory_add"]["description"]
     assert "what is remembered" in tools["vexdb_memory_search"]["description"]
@@ -88,6 +113,9 @@ def test_tools_list_exposes_strict_agent_friendly_schemas():
     assert tools["vexdb_memory_apply_decay"]["inputSchema"]["properties"]["min_access_count"]["minimum"] == 0
     assert tools["vexdb_memory_batch_add"]["inputSchema"]["required"] == ["items"]
     assert tools["vexdb_memory_batch_search"]["inputSchema"]["required"] == ["queries"]
+    assert tools["vexdb_memory_graph"]["inputSchema"]["required"] == ["memory_id"]
+    assert tools["vexdb_memory_search"]["inputSchema"]["properties"]["tags"]["items"]["type"] == "string"
+    assert tools["vexdb_memory_batch_search"]["inputSchema"]["properties"]["queries"]["items"]["type"] == "string"
 
 
 def test_add_returns_conflict_metadata_for_resolution(monkeypatch):
@@ -142,6 +170,34 @@ def test_batch_search_returns_results_per_query(monkeypatch):
 
     assert [item["query"] for item in payload["results"]] == ["alpha", "beta"]
     assert payload["results"][0]["memories"][0]["content"] == "result for alpha"
+
+
+def test_memory_graph_and_conflict_report_tools(monkeypatch):
+    monkeypatch.setattr(mcp, "_client", FakeClient())
+    graph = mcp._handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "vexdb_memory_graph",
+                "arguments": {"memory_id": "00000000-0000-0000-0000-000000000001"},
+            },
+        }
+    )
+    report = mcp._handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {"name": "vexdb_memory_conflict_report", "arguments": {"since": "7 days"}},
+        }
+    )
+
+    graph_payload = json.loads(graph["result"]["content"][0]["text"])
+    report_payload = json.loads(report["result"]["content"][0]["text"])
+    assert graph_payload["links"][0]["link_type"] == "semantic_related"
+    assert report_payload["total_conflicts"] == 3
 
 
 def test_tool_call_rejects_unknown_arguments():

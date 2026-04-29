@@ -40,6 +40,8 @@ PYTHONPATH=python python -m vexdb_active_memory.cli mcp-smoke
 - 暴露 `vexdb_memory_batch_search`
 - 暴露 `vexdb_memory_resolve_conflict`
 - 暴露 `vexdb_memory_apply_decay`
+- 暴露 `vexdb_memory_graph`
+- 暴露 `vexdb_memory_conflict_report`
 - 输出 OpenClaw 前缀工具名
 
 ### 2. MCP 参数契约
@@ -158,8 +160,8 @@ hermes mcp test vexdb-active-memory
 通过标准：
 
 - 连接成功
-- 发现 7 个工具
-- 工具名包含 `vexdb_memory_status`、`vexdb_memory_add`、`vexdb_memory_batch_add`、`vexdb_memory_search`、`vexdb_memory_batch_search`、`vexdb_memory_resolve_conflict`、`vexdb_memory_apply_decay`
+- 发现 9 个工具
+- 工具名包含 `vexdb_memory_status`、`vexdb_memory_add`、`vexdb_memory_batch_add`、`vexdb_memory_search`、`vexdb_memory_batch_search`、`vexdb_memory_resolve_conflict`、`vexdb_memory_apply_decay`、`vexdb_memory_graph`、`vexdb_memory_conflict_report`
 
 ## 当前实测评分
 

@@ -87,6 +87,9 @@ def tool_add(
     confidence: float = 1.0,
     tags: list[str] | None = None,
     space_path: str = "global",
+    valid_from: str | None = None,
+    valid_until: str | None = None,
+    expires_at: str | None = None,
 ) -> dict[str, Any]:
     result = _get_client().upsert(
         content,
@@ -102,6 +105,9 @@ def tool_add(
         confidence=confidence,
         tags=tags,
         space_path=space_path,
+        valid_from=valid_from,
+        valid_until=valid_until,
+        expires_at=expires_at,
     )
     return result
 
@@ -258,6 +264,23 @@ def tool_apply_decay(
     )
 
 
+def tool_memory_graph(
+    memory_id: str,
+    link_type: str | None = None,
+    limit: int = 25,
+) -> dict[str, Any]:
+    links = _get_client().memory_graph(memory_id, link_type=link_type, limit=limit)
+    return {"memory_id": memory_id, "links": links}
+
+
+def tool_conflict_report(
+    tenant_id: str | None = None,
+    namespace: str | None = None,
+    since: str = "30 days",
+) -> dict[str, Any]:
+    return _get_client().conflict_report(tenant_id=tenant_id, namespace=namespace, since=since)
+
+
 TOOLS: dict[str, dict[str, Any]] = {
     "vexdb_memory_status": {
         "description": (
@@ -285,13 +308,20 @@ TOOLS: dict[str, dict[str, Any]] = {
                 "scope": {"type": "string", "description": "Memory scope, such as global, user id, or session id."},
                 "memory_type": {"type": "string", "description": "Memory category such as fact, preference, task, or note."},
                 "metadata": {"type": "object", "description": "Small JSON metadata object for filtering and provenance."},
-                "tags": {"type": "array", "description": "Optional normalized memory tags."},
+                "tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional normalized memory tags.",
+                },
                 "space_path": {"type": "string", "description": "Hierarchical memory space path, such as wing/room."},
                 "source": {"type": "string", "description": "Source system or document identifier."},
                 "actor": {"type": "string", "description": "Agent or user writing the memory."},
                 "subject": {"type": "string", "description": "Entity the memory is about."},
                 "importance": {"type": "integer", "description": "Importance score from 1 to 5."},
                 "confidence": {"type": "number", "description": "Confidence from 0.0 to 1.0."},
+                "valid_from": {"type": "string", "description": "Optional timestamp when the memory becomes valid."},
+                "valid_until": {"type": "string", "description": "Optional timestamp when retrieval should stop using this memory."},
+                "expires_at": {"type": "string", "description": "Optional timestamp hint for decay/archive eligibility."},
             },
             "required": ["content"],
             "additionalProperties": False,
@@ -308,6 +338,7 @@ TOOLS: dict[str, dict[str, Any]] = {
             "properties": {
                 "items": {
                     "type": "array",
+                    "items": {},
                     "description": "List of memory strings or objects with content, metadata, tags, and space_path.",
                 },
                 "tenant_id": {"type": "string", "description": "Tenant partition. Defaults to default."},
@@ -336,7 +367,11 @@ TOOLS: dict[str, dict[str, Any]] = {
                 "memory_type": {"type": "string", "description": "Optional memory category filter."},
                 "limit": {"type": "integer", "description": "Maximum number of memories to return, capped at 100."},
                 "metadata_filter": {"type": "object", "description": "JSON metadata containment filter."},
-                "tags": {"type": "array", "description": "Require memories to contain these tags."},
+                "tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Require memories to contain these tags.",
+                },
                 "space_path": {"type": "string", "description": "Optional hierarchical memory space path filter."},
             },
             "required": ["query"],
@@ -352,14 +387,22 @@ TOOLS: dict[str, dict[str, Any]] = {
         "input_schema": {
             "type": "object",
             "properties": {
-                "queries": {"type": "array", "description": "List of natural-language retrieval queries."},
+                "queries": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of natural-language retrieval queries.",
+                },
                 "tenant_id": {"type": "string", "description": "Tenant partition. Defaults to default."},
                 "namespace": {"type": "string", "description": "Application or agent namespace."},
                 "scope": {"type": "string", "description": "Memory scope to search."},
                 "memory_type": {"type": "string", "description": "Optional memory category filter."},
                 "limit": {"type": "integer", "description": "Maximum number of memories per query, capped at 100."},
                 "metadata_filter": {"type": "object", "description": "JSON metadata containment filter."},
-                "tags": {"type": "array", "description": "Require memories to contain these tags."},
+                "tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Require memories to contain these tags.",
+                },
                 "space_path": {"type": "string", "description": "Optional hierarchical memory space path filter."},
             },
             "required": ["queries"],
@@ -417,6 +460,38 @@ TOOLS: dict[str, dict[str, Any]] = {
             "additionalProperties": False,
         },
         "handler": tool_apply_decay,
+    },
+    "vexdb_memory_graph": {
+        "description": (
+            "Return semantic links from a memory to related active memories. "
+            "Use this to inspect the memory graph built from memory_links."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "memory_id": {"type": "string", "description": "Source memory UUID."},
+                "link_type": {"type": "string", "description": "Optional link type filter, such as semantic_related."},
+                "limit": {"type": "integer", "description": "Maximum number of links to return, capped at 100."},
+            },
+            "required": ["memory_id"],
+            "additionalProperties": False,
+        },
+        "handler": tool_memory_graph,
+    },
+    "vexdb_memory_conflict_report": {
+        "description": (
+            "Summarize conflict queue decisions for threshold tuning and adjudication quality review."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "tenant_id": {"type": "string", "description": "Optional tenant partition."},
+                "namespace": {"type": "string", "description": "Optional namespace filter."},
+                "since": {"type": "string", "description": "SQL interval window, for example '30 days'."},
+            },
+            "additionalProperties": False,
+        },
+        "handler": tool_conflict_report,
     },
 }
 

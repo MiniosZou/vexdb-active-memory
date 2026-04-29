@@ -69,7 +69,7 @@ v1.0 做：
 
 | 版本 | 目标日期 | 验收标准 |
 | --- | --- | --- |
-| v0.1 | 2026-05-31 | MCP 5 工具可发现；`smoke-test` 可入库检索；`conflict-decay-test` 可裁决并归档；评分 >= 9/10 |
+| v0.1 | 2026-05-31 | MCP 9 工具可发现；`smoke-test` 可入库检索；`conflict-decay-test` 可裁决并归档；评分 >= 9/10 |
 | v0.2 | v0.1 后 2 周 | 真实 VexDB 闭环证据入库；性能基线完成；容器化或一键测试脚本完成 |
 | v0.3 | v0.2 后 4 周 | LLM 裁决 provider 可插拔；冲突 fixture 准确率报告可生成 |
 | v1.0 | 业务试点后确定 | 生产 SLO、发布包、升级指南和监控审计完整 |
@@ -129,10 +129,13 @@ v0.3 前不得把 LLM 裁决宣传为完全自动生产能力。进入生产口�
 - P1：`search_memory(...)` 已支持 SQL 层 metadata/tags/space_path 过滤。
 - P1：记忆组织层已加入 `space_path` 和 `memory_spaces`，为 Wings/Rooms/Collections 做数据库侧承载。
 - P1：自动记忆关联已加入 `link_related_memories(...)`，写入后可生成 `semantic_related` 链接。
+- P1：基础 Memory Graph 查询已加入 `get_memory_links(...)`、SDK 和 MCP 工具。
+- P1：冲突样本统计报表已加入 `conflict_report(...)`、SDK 和 MCP 工具，用于阈值调优。
+- P1：REST API 已作为可选薄适配器加入，核心仍由 VexDB SQL/SDK/MCP 承担。
+- P1：TTL/时间有效性写入入口已加入 `valid_from`、`valid_until`、`expires_at`。
 
 仍按后续版本推进：
 
 - PostgreSQL/pgvector：定位为兼容适配包，不替换 VexDB；客户端已支持 `VEXDB_MEMORY_VECTOR_TYPE=vector`，仍需要单独 SQL 方言、测试矩阵和迁移说明。
-- REST API：保持 P1 路线，不进入当前 v0.1 核心包。
-- 冲突样本集报表：需要 fixture、人工标注标准和准确率统计脚本。
+- 冲突样本集准确率报告：仍需要 fixture、人工标注标准和准确率统计脚本。
 - AAAK 压缩、Web 审核台、容器化完整测试环境：列入 P2 或独立子项目。

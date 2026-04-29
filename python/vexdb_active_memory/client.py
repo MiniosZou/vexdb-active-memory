@@ -77,6 +77,9 @@ class ActiveMemoryClient:
         confidence: float = 1.0,
         tags: list[str] | None = None,
         space_path: str = "global",
+        valid_from: str | None = None,
+        valid_until: str | None = None,
+        expires_at: str | None = None,
         request_id: str | None = None,
     ) -> str:
         return self.upsert(
@@ -93,6 +96,9 @@ class ActiveMemoryClient:
             confidence=confidence,
             tags=tags,
             space_path=space_path,
+            valid_from=valid_from,
+            valid_until=valid_until,
+            expires_at=expires_at,
             request_id=request_id,
         )["id"]
 
@@ -135,6 +141,9 @@ class ActiveMemoryClient:
                         space_path=payload.pop("space_path", "global"),
                         importance=payload.pop("importance", None),
                         confidence=payload.pop("confidence", 1.0),
+                        valid_from=payload.pop("valid_from", None),
+                        valid_until=payload.pop("valid_until", None),
+                        expires_at=payload.pop("expires_at", None),
                     )
                 )
         return results
@@ -183,6 +192,9 @@ class ActiveMemoryClient:
         confidence: float = 1.0,
         tags: list[str] | None = None,
         space_path: str = "global",
+        valid_from: str | None = None,
+        valid_until: str | None = None,
+        expires_at: str | None = None,
         request_id: str | None = None,
     ) -> dict[str, Any]:
         metadata = metadata or {}
@@ -207,7 +219,8 @@ class ActiveMemoryClient:
                         SELECT memory_id, action, conflict_id, nearest_distance
                         FROM active_memory.upsert_memory(
                             %s, %s, %s, %s, %s, %s, %s, %s, %s::{vector_type},
-                            %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                            %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                            %s, %s::timestamptz, %s::timestamptz, %s::timestamptz
                         )
                         """,
                         (
@@ -234,6 +247,9 @@ class ActiveMemoryClient:
                             self.config.auto_link_limit,
                             lock_key,
                             request_id,
+                            valid_from,
+                            valid_until,
+                            expires_at,
                         ),
                     )
                     row = cur.fetchone()
@@ -348,6 +364,78 @@ class ActiveMemoryClient:
                 conn.rollback()
                 raise
         return {"memory_id": _uuid_text(row[0]), "action": row[1]}
+
+    def memory_graph(
+        self,
+        memory_id: str,
+        *,
+        link_type: str | None = None,
+        limit: int = 25,
+    ) -> list[dict[str, Any]]:
+        with self.pool.connection() as conn:
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT link_id, source_memory_id, target_memory_id, link_type, weight,
+                               target_content, target_metadata, target_tags, target_space_path, created_at
+                        FROM active_memory.get_memory_links(%s, %s, %s)
+                        """,
+                        (memory_id, link_type, max(1, min(limit, 100))),
+                    )
+                    rows = cur.fetchall()
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+        return [
+            {
+                "link_id": _uuid_text(row[0]),
+                "source_memory_id": _uuid_text(row[1]),
+                "target_memory_id": _uuid_text(row[2]),
+                "link_type": row[3],
+                "weight": float(row[4]),
+                "target_content": row[5],
+                "target_metadata": row[6] or {},
+                "target_tags": row[7] or [],
+                "target_space_path": row[8],
+                "created_at": row[9].isoformat() if row[9] else None,
+            }
+            for row in rows
+        ]
+
+    def conflict_report(
+        self,
+        *,
+        tenant_id: str | None = None,
+        namespace: str | None = None,
+        since: str = "30 days",
+    ) -> dict[str, Any]:
+        with self.pool.connection() as conn:
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT total_conflicts, pending_conflicts, resolved_conflicts,
+                               update_count, append_count, reject_count, avg_distance
+                        FROM active_memory.conflict_report(%s, %s, %s::interval)
+                        """,
+                        (tenant_id, namespace, since),
+                    )
+                    row = cur.fetchone()
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+        return {
+            "total_conflicts": int(row[0]),
+            "pending_conflicts": int(row[1]),
+            "resolved_conflicts": int(row[2]),
+            "update_count": int(row[3]),
+            "append_count": int(row[4]),
+            "reject_count": int(row[5]),
+            "avg_distance": float(row[6]) if row[6] is not None else None,
+        }
 
     def apply_decay(
         self,

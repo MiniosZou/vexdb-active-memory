@@ -49,6 +49,11 @@ DROP FUNCTION IF EXISTS active_memory.upsert_memory(
     TEXT, TEXT, TEXT, TEXT, INTEGER, NUMERIC, DOUBLE PRECISION, DOUBLE PRECISION,
     DOUBLE PRECISION, INTEGER, BIGINT, TEXT
 );
+DROP FUNCTION IF EXISTS active_memory.upsert_memory(
+    UUID, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, floatvector, JSONB, JSONB,
+    TEXT, TEXT, TEXT, TEXT, INTEGER, NUMERIC, DOUBLE PRECISION, DOUBLE PRECISION,
+    DOUBLE PRECISION, INTEGER, TIMESTAMPTZ, TIMESTAMPTZ, TIMESTAMPTZ, BIGINT, TEXT
+);
 
 CREATE OR REPLACE FUNCTION active_memory.search_memory(
     p_tenant_id TEXT,
@@ -103,6 +108,7 @@ BEGIN
       AND (COALESCE(p_metadata_filter, '{}'::jsonb) = '{}'::jsonb OR m.metadata @> p_metadata_filter)
       AND (COALESCE(p_tags, '[]'::jsonb) = '[]'::jsonb OR m.tags @> p_tags)
       AND (p_space_path IS NULL OR p_space_path = '' OR m.space_path = p_space_path)
+      AND (m.valid_from IS NULL OR m.valid_from <= now())
       AND (m.valid_until IS NULL OR m.valid_until > now())
     ORDER BY m.embedding <=> p_embedding
     LIMIT GREATEST(1, p_limit);
@@ -146,7 +152,10 @@ CREATE OR REPLACE FUNCTION active_memory.upsert_memory(
     p_auto_link_distance DOUBLE PRECISION DEFAULT 0.18,
     p_auto_link_limit INTEGER DEFAULT 5,
     p_lock_key BIGINT DEFAULT NULL,
-    p_request_id TEXT DEFAULT NULL
+    p_request_id TEXT DEFAULT NULL,
+    p_valid_from TIMESTAMPTZ DEFAULT NULL,
+    p_valid_until TIMESTAMPTZ DEFAULT NULL,
+    p_expires_at TIMESTAMPTZ DEFAULT NULL
 )
 RETURNS TABLE (
     memory_id UUID,
@@ -193,6 +202,9 @@ BEGIN
                 ELSE tags
             END,
             space_path = COALESCE(NULLIF(p_space_path, ''), space_path),
+            valid_from = COALESCE(p_valid_from, valid_from),
+            valid_until = COALESCE(p_valid_until, valid_until),
+            expires_at = COALESCE(p_expires_at, expires_at),
             duplicate_count = duplicate_count + 1,
             access_count = access_count + 1
         WHERE id = v_existing.id;
@@ -249,6 +261,9 @@ BEGIN
                 ELSE tags
             END,
             space_path = COALESCE(NULLIF(p_space_path, ''), space_path),
+            valid_from = COALESCE(p_valid_from, valid_from),
+            valid_until = COALESCE(p_valid_until, valid_until),
+            expires_at = COALESCE(p_expires_at, expires_at),
             duplicate_count = duplicate_count + 1,
             access_count = access_count + 1
         WHERE id = v_nearest.id;
@@ -279,11 +294,15 @@ BEGIN
         INSERT INTO active_memory.conflict_queue(
             conflict_id, old_memory_id, candidate_content,
             candidate_canonical_text, candidate_content_hash,
-            candidate_embedding, candidate_metadata, distance
+            candidate_embedding, candidate_metadata,
+            candidate_valid_from, candidate_valid_until, candidate_expires_at,
+            distance
         ) VALUES (
             v_conflict_id, v_nearest.id, p_content,
             p_canonical_text, p_content_hash,
-            p_embedding, COALESCE(p_metadata, '{}'::jsonb), v_nearest.distance
+            p_embedding, COALESCE(p_metadata, '{}'::jsonb),
+            p_valid_from, p_valid_until, p_expires_at,
+            v_nearest.distance
         );
 
         PERFORM active_memory.log_event(
@@ -302,12 +321,12 @@ BEGIN
     INSERT INTO active_memory.memories(
         id, tenant_id, namespace, scope, memory_type, content,
         canonical_text, content_hash, embedding, metadata, tags, space_path, source,
-        actor, subject, importance, confidence
+        actor, subject, importance, confidence, valid_from, valid_until, expires_at
     ) VALUES (
         p_id, p_tenant_id, p_namespace, p_scope, p_memory_type, p_content,
         p_canonical_text, p_content_hash, p_embedding, COALESCE(p_metadata, '{}'::jsonb),
         COALESCE(p_tags, '[]'::jsonb), COALESCE(NULLIF(p_space_path, ''), 'global'), p_source,
-        p_actor, p_subject, p_importance, p_confidence
+        p_actor, p_subject, p_importance, p_confidence, p_valid_from, p_valid_until, p_expires_at
     );
 
     PERFORM active_memory.link_related_memories(p_id, p_auto_link_distance, p_auto_link_limit);
@@ -416,7 +435,10 @@ BEGIN
             canonical_text = v_conflict.candidate_canonical_text,
             content_hash = v_conflict.candidate_content_hash,
             embedding = v_conflict.candidate_embedding,
-            metadata = v_new_metadata
+            metadata = v_new_metadata,
+            valid_from = COALESCE(v_conflict.candidate_valid_from, valid_from),
+            valid_until = COALESCE(v_conflict.candidate_valid_until, valid_until),
+            expires_at = COALESCE(v_conflict.candidate_expires_at, expires_at)
         WHERE id = v_conflict.old_memory_id;
 
         INSERT INTO active_memory.memory_versions(
@@ -437,13 +459,14 @@ BEGIN
         INSERT INTO active_memory.memories(
             id, tenant_id, namespace, scope, memory_type, content,
             canonical_text, content_hash, embedding, metadata, tags, space_path, source,
-            actor, subject, importance, confidence
+            actor, subject, importance, confidence, valid_from, valid_until, expires_at
         )
         SELECT
             v_new_id, tenant_id, namespace, scope, memory_type, v_conflict.candidate_content,
             v_conflict.candidate_canonical_text, v_conflict.candidate_content_hash,
             v_conflict.candidate_embedding, v_new_metadata, tags, space_path,
-            source, p_actor, subject, importance, confidence
+            source, p_actor, subject, importance, confidence,
+            v_conflict.candidate_valid_from, v_conflict.candidate_valid_until, v_conflict.candidate_expires_at
         FROM active_memory.memories
         WHERE id = v_conflict.old_memory_id;
 
@@ -485,6 +508,82 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+CREATE OR REPLACE FUNCTION active_memory.get_memory_links(
+    p_memory_id UUID,
+    p_link_type TEXT DEFAULT NULL,
+    p_limit INTEGER DEFAULT 25
+)
+RETURNS TABLE (
+    link_id UUID,
+    source_memory_id UUID,
+    target_memory_id UUID,
+    link_type TEXT,
+    weight NUMERIC,
+    target_content TEXT,
+    target_metadata JSONB,
+    target_tags JSONB,
+    target_space_path TEXT,
+    created_at TIMESTAMPTZ
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT
+        l.link_id,
+        p_memory_id,
+        m.id,
+        l.link_type,
+        l.weight,
+        m.content,
+        m.metadata,
+        m.tags,
+        m.space_path,
+        l.created_at
+    FROM active_memory.memory_links l
+    JOIN active_memory.memories m
+      ON m.id = CASE
+          WHEN l.source_memory_id = p_memory_id THEN l.target_memory_id
+          ELSE l.source_memory_id
+      END
+    WHERE (l.source_memory_id = p_memory_id OR l.target_memory_id = p_memory_id)
+      AND (p_link_type IS NULL OR l.link_type = p_link_type)
+      AND m.status = 'active'
+    ORDER BY l.weight DESC, l.created_at DESC
+    LIMIT GREATEST(1, p_limit);
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION active_memory.conflict_report(
+    p_tenant_id TEXT DEFAULT NULL,
+    p_namespace TEXT DEFAULT NULL,
+    p_since INTERVAL DEFAULT '30 days'
+)
+RETURNS TABLE (
+    total_conflicts BIGINT,
+    pending_conflicts BIGINT,
+    resolved_conflicts BIGINT,
+    update_count BIGINT,
+    append_count BIGINT,
+    reject_count BIGINT,
+    avg_distance NUMERIC
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT
+        count(*)::BIGINT AS total_conflicts,
+        count(CASE WHEN q.status = 'pending' THEN 1 END)::BIGINT AS pending_conflicts,
+        count(CASE WHEN q.status = 'resolved' THEN 1 END)::BIGINT AS resolved_conflicts,
+        count(CASE WHEN q.decision = 'update' THEN 1 END)::BIGINT AS update_count,
+        count(CASE WHEN q.decision = 'append' THEN 1 END)::BIGINT AS append_count,
+        count(CASE WHEN q.decision = 'reject' THEN 1 END)::BIGINT AS reject_count,
+        avg(q.distance)::NUMERIC AS avg_distance
+    FROM active_memory.conflict_queue q
+    JOIN active_memory.memories m ON m.id = q.old_memory_id
+    WHERE (p_tenant_id IS NULL OR m.tenant_id = p_tenant_id)
+      AND (p_namespace IS NULL OR m.namespace = p_namespace)
+      AND q.created_at >= now() - COALESCE(p_since, '30 days'::interval);
+END;
+$$ LANGUAGE plpgsql;
+
 CREATE OR REPLACE FUNCTION active_memory.apply_decay(
     p_tenant_id TEXT DEFAULT NULL,
     p_namespace TEXT DEFAULT NULL,
@@ -506,7 +605,13 @@ BEGIN
         WHERE status = 'active'
           AND (p_tenant_id IS NULL OR tenant_id = p_tenant_id)
           AND (p_namespace IS NULL OR namespace = p_namespace)
-          AND COALESCE(last_accessed_at, updated_at, created_at) < now() - p_archive_before
+          AND (
+              (expires_at IS NOT NULL AND expires_at <= now())
+              OR (
+                  expires_at IS NULL
+                  AND COALESCE(last_accessed_at, updated_at, created_at) < now() - p_archive_before
+              )
+          )
           AND access_count <= p_min_access_count
           AND importance <= 2
         RETURNING id

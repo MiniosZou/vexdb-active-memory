@@ -91,6 +91,28 @@ Lifecycle field semantics:
 - `expires_at`: when a memory becomes a candidate for decay or archival. It is
   a lifecycle management hint, not a truth-validity boundary.
 
+## Graph And Reports
+
+`active_memory.memory_links` is queryable through
+`active_memory.get_memory_links(...)`, the SDK `memory_graph(...)` method, and
+the `vexdb_memory_graph` MCP tool. The first graph relation implemented is
+`semantic_related`; entity extraction and external KG sync remain future
+extensions.
+
+`active_memory.conflict_report(...)` summarizes pending/resolved conflicts,
+decision counts, and average candidate distance. It is intended for threshold
+tuning and adjudication quality review, not as a replacement for a labeled
+conflict fixture set.
+
+## REST API
+
+The core package remains SDK/MCP first. A thin optional REST adapter is
+available through `vexdb-active-memory[api]` and
+`vexdb_active_memory.rest_api:create_app`. For uvicorn, run it as a factory, for
+example `uvicorn vexdb_active_memory.rest_api:create_app --factory`. It
+delegates to the same SDK and SQL functions, so VexDB remains the owner of
+memory behavior.
+
 ## VexDB Notes
 
 The VexDB documentation examples use `floatvector(n)` for vector columns.

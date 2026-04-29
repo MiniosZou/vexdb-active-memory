@@ -13,7 +13,7 @@ VexDB Active Memory 是一个 **数据库原生智能记忆框架**。它基于 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
 ![VexDB](https://img.shields.io/badge/VexDB-vector%20database-green)
 ![MCP](https://img.shields.io/badge/MCP-stdio-purple)
-![Tests](https://img.shields.io/badge/tests-45%20passed-brightgreen)
+![Tests](https://img.shields.io/badge/tests-48%20passed-brightgreen)
 ![License](https://img.shields.io/badge/license-Proprietary-lightgrey)
 
 ## 30 秒理解
@@ -140,7 +140,7 @@ LLM、人工审核员或策略引擎只负责给出决策，最终修改由数�
 
 ### 6. MCP 工具接入
 
-内置 stdio MCP Server，暴露 7 个工具：
+内置 stdio MCP Server，暴露 9 个工具：
 
 - `vexdb_memory_status`
 - `vexdb_memory_add`
@@ -149,6 +149,8 @@ LLM、人工审核员或策略引擎只负责给出决策，最终修改由数�
 - `vexdb_memory_batch_search`
 - `vexdb_memory_resolve_conflict`
 - `vexdb_memory_apply_decay`
+- `vexdb_memory_graph`
+- `vexdb_memory_conflict_report`
 
 OpenClaw、Hermes 或其他 MCP 客户端都可以接入。
 
@@ -176,8 +178,8 @@ OpenClaw、Hermes 或其他 MCP 客户端都可以接入。
 
 当前本地验证结果：
 
-- `python -m pytest tests`：33 passed，1 skipped
-- `mcp-smoke`：通过，发现 7 个 MCP 工具
+- `python -m pytest tests`：48 passed，1 skipped
+- `mcp-smoke`：通过，发现 9 个 MCP 工具
 - `smoke-test`：真实 VexDB 入库和检索通过
 - `conflict-decay-test`：真实 VexDB 冲突裁决 + 遗忘归档通过
 - OpenClaw / Hermes 工具发现已验证
@@ -407,5 +409,5 @@ tests/                       Unit, contract, and integration tests
 - 不依赖 Mem0、MemPalace、LangChain、LlamaIndex 等外部记忆框架。
 - OpenClaw、Hermes、Codex 等是接入方，不是记忆能力的拥有者。
 - HNSW、PL/Python 是渐进增强，不支持时不能阻断核心链路。
-- REST、Web UI、后台 scheduler 暂不属于 v0.1 核心范围。
+- REST 已作为可选薄适配器提供；Web UI、后台 scheduler 暂不属于 v0.1 核心范围。
 - 密钥、DSN、API key 不写入仓库。

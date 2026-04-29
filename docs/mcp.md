@@ -109,6 +109,9 @@ Optional:
 - `subject`
 - `importance`
 - `confidence`
+- `valid_from`
+- `valid_until`
+- `expires_at`
 
 ### vexdb_memory_batch_add
 
@@ -194,3 +197,27 @@ Optional:
 - `archive_before`
 - `delete_before`
 - `min_access_count`
+
+### vexdb_memory_graph
+
+Returns semantic links from one memory to related active memories.
+
+Required:
+
+- `memory_id`
+
+Optional:
+
+- `link_type`
+- `limit`
+
+### vexdb_memory_conflict_report
+
+Summarizes conflict queue decisions for threshold tuning and adjudication
+quality review.
+
+Optional:
+
+- `tenant_id`
+- `namespace`
+- `since`

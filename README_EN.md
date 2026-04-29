@@ -13,7 +13,7 @@ new memory is duplicate, conflicting, stale, or worth keeping.
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
 ![VexDB](https://img.shields.io/badge/VexDB-vector%20database-green)
 ![MCP](https://img.shields.io/badge/MCP-stdio-purple)
-![Tests](https://img.shields.io/badge/tests-45%20passed-brightgreen)
+![Tests](https://img.shields.io/badge/tests-48%20passed-brightgreen)
 
 ## Why This Exists
 
@@ -92,6 +92,8 @@ The stdio MCP server exposes:
 - `vexdb_memory_batch_search`
 - `vexdb_memory_resolve_conflict`
 - `vexdb_memory_apply_decay`
+- `vexdb_memory_graph`
+- `vexdb_memory_conflict_report`
 
 ## Quick Start
 

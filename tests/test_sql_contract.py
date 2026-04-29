@@ -18,6 +18,9 @@ def test_search_function_uses_cosine_distance_operator():
     assert "p_tags JSONB" in functions
     assert "p_space_path TEXT" in functions
     assert "m.tags @> p_tags" in functions
+    assert "p_valid_until TIMESTAMPTZ" in functions
+    assert "p_expires_at TIMESTAMPTZ" in functions
+    assert "m.valid_from IS NULL OR m.valid_from <= now()" in functions
 
 
 def test_database_native_memory_management_functions_exist():
@@ -26,6 +29,10 @@ def test_database_native_memory_management_functions_exist():
     assert "pg_advisory_xact_lock" in functions
     assert "active_memory.resolve_conflict" in functions
     assert "active_memory.apply_decay" in functions
+    assert "active_memory.get_memory_links" in functions
+    assert "active_memory.conflict_report" in functions
+    assert "p_memory_id,\n        m.id" in functions
+    assert "expires_at IS NULL" in functions
     assert "'ARCHIVE'" in functions
     assert "'DELETE'" in functions
     assert "'ADD'" in functions
@@ -63,6 +70,8 @@ def test_conflict_and_lifecycle_constraints_are_declared():
     assert "status IN ('active', 'archived', 'deleted')" in schema
     assert "candidate_canonical_text" in schema
     assert "candidate_content_hash" in schema
+    assert "candidate_valid_until" in schema
+    assert "ADD COLUMN valid_from" in schema
     assert "information_schema.columns" in schema
     assert "ADD COLUMN candidate_canonical_text" in schema
     assert "ALTER COLUMN candidate_content_hash SET NOT NULL" in schema

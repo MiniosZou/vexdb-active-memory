@@ -72,6 +72,48 @@ ALTER COLUMN tags SET NOT NULL;
 ALTER TABLE active_memory.memories
 ALTER COLUMN space_path SET NOT NULL;
 
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'active_memory'
+          AND table_name = 'memories'
+          AND column_name = 'valid_from'
+    ) THEN
+        ALTER TABLE active_memory.memories ADD COLUMN valid_from TIMESTAMPTZ;
+    END IF;
+END;
+$$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'active_memory'
+          AND table_name = 'memories'
+          AND column_name = 'valid_until'
+    ) THEN
+        ALTER TABLE active_memory.memories ADD COLUMN valid_until TIMESTAMPTZ;
+    END IF;
+END;
+$$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'active_memory'
+          AND table_name = 'memories'
+          AND column_name = 'expires_at'
+    ) THEN
+        ALTER TABLE active_memory.memories ADD COLUMN expires_at TIMESTAMPTZ;
+    END IF;
+END;
+$$;
+
 CREATE TABLE IF NOT EXISTS active_memory.memory_versions (
     version_id UUID PRIMARY KEY,
     memory_id UUID NOT NULL REFERENCES active_memory.memories(id) ON DELETE CASCADE,
@@ -101,6 +143,9 @@ CREATE TABLE IF NOT EXISTS active_memory.conflict_queue (
     candidate_content_hash TEXT NOT NULL,
     candidate_embedding floatvector(1024) NOT NULL,
     candidate_metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+    candidate_valid_from TIMESTAMPTZ,
+    candidate_valid_until TIMESTAMPTZ,
+    candidate_expires_at TIMESTAMPTZ,
     distance NUMERIC(8,6) NOT NULL,
     status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'resolved')),
     decision TEXT CHECK (decision IS NULL OR decision IN ('update', 'append', 'reject')),
@@ -149,6 +194,48 @@ ALTER COLUMN candidate_canonical_text SET NOT NULL;
 
 ALTER TABLE active_memory.conflict_queue
 ALTER COLUMN candidate_content_hash SET NOT NULL;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'active_memory'
+          AND table_name = 'conflict_queue'
+          AND column_name = 'candidate_valid_from'
+    ) THEN
+        ALTER TABLE active_memory.conflict_queue ADD COLUMN candidate_valid_from TIMESTAMPTZ;
+    END IF;
+END;
+$$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'active_memory'
+          AND table_name = 'conflict_queue'
+          AND column_name = 'candidate_valid_until'
+    ) THEN
+        ALTER TABLE active_memory.conflict_queue ADD COLUMN candidate_valid_until TIMESTAMPTZ;
+    END IF;
+END;
+$$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'active_memory'
+          AND table_name = 'conflict_queue'
+          AND column_name = 'candidate_expires_at'
+    ) THEN
+        ALTER TABLE active_memory.conflict_queue ADD COLUMN candidate_expires_at TIMESTAMPTZ;
+    END IF;
+END;
+$$;
 
 CREATE TABLE IF NOT EXISTS active_memory.memory_links (
     link_id UUID PRIMARY KEY,

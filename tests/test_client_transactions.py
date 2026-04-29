@@ -13,6 +13,7 @@ class FakeCursor:
     def __init__(self, *, fail=False):
         self.fail = fail
         self.statements = []
+        self.params = []
 
     def __enter__(self):
         return self
@@ -24,6 +25,8 @@ class FakeCursor:
         if self.fail:
             raise RuntimeError("query failed")
         self.statements.append(args[0])
+        if len(args) > 1:
+            self.params.append(args[1])
 
     def fetchone(self):
         if any("active_memory.upsert_memory" in statement for statement in self.statements):
@@ -120,3 +123,22 @@ def test_upsert_returns_database_action_and_conflict_metadata():
         "tags": [],
         "space_path": "global",
     }
+
+
+def test_upsert_call_keeps_legacy_lock_and_request_positions_before_ttl():
+    conn = FakeConnection()
+    make_client(conn).upsert(
+        "Remember this",
+        namespace="tests",
+        scope="upsert",
+        request_id="req-1",
+        valid_until="2099-01-01T00:00:00Z",
+    )
+    params = conn.last_cursor.params[-1]
+
+    assert len(params) == 26
+    assert isinstance(params[21], int)
+    assert params[22] == "req-1"
+    assert params[23] is None
+    assert params[24] == "2099-01-01T00:00:00Z"
+    assert params[25] is None
