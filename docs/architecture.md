@@ -82,11 +82,26 @@ Quality gates for LLM adjudication:
 2. Active memories are archived when they have not been reinforced.
 3. Archived memories can later be marked deleted by policy.
 
+Lifecycle field semantics:
+
+- `valid_from`: when a memory starts being valid. It is reserved for temporal
+  facts and policy-effective dates.
+- `valid_until`: when a memory stops being valid for retrieval. Search excludes
+  active rows whose `valid_until` is in the past.
+- `expires_at`: when a memory becomes a candidate for decay or archival. It is
+  a lifecycle management hint, not a truth-validity boundary.
+
 ## VexDB Notes
 
 The VexDB documentation examples use `floatvector(n)` for vector columns.
 Cosine distance uses `<=>`, L2 distance uses `<->`, and inner product uses
 `<#>`. This project uses `floatvector(1024)` by default.
+
+The Python client also supports a compatibility switch:
+`VEXDB_MEMORY_VECTOR_TYPE=vector` changes client-side casts to pgvector's
+`vector` type. VexDB remains the primary engine; PostgreSQL/pgvector should use
+a separate SQL compatibility pack because function signatures and extension
+setup differ from VexDB `floatvector`.
 
 The index layer attempts a progressive HNSW index when supported by the target
 VexDB edition and falls back to exact vector ordering when it is not available.

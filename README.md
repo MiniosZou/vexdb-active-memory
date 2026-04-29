@@ -13,7 +13,7 @@ VexDB Active Memory 是一个 **数据库原生智能记忆框架**。它基于 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
 ![VexDB](https://img.shields.io/badge/VexDB-vector%20database-green)
 ![MCP](https://img.shields.io/badge/MCP-stdio-purple)
-![Tests](https://img.shields.io/badge/tests-38%20passed-brightgreen)
+![Tests](https://img.shields.io/badge/tests-45%20passed-brightgreen)
 ![License](https://img.shields.io/badge/license-Proprietary-lightgrey)
 
 ## 30 秒理解
@@ -140,11 +140,13 @@ LLM、人工审核员或策略引擎只负责给出决策，最终修改由数�
 
 ### 6. MCP 工具接入
 
-内置 stdio MCP Server，暴露 5 个工具：
+内置 stdio MCP Server，暴露 7 个工具：
 
 - `vexdb_memory_status`
 - `vexdb_memory_add`
+- `vexdb_memory_batch_add`
 - `vexdb_memory_search`
+- `vexdb_memory_batch_search`
 - `vexdb_memory_resolve_conflict`
 - `vexdb_memory_apply_decay`
 
@@ -175,7 +177,7 @@ OpenClaw、Hermes 或其他 MCP 客户端都可以接入。
 当前本地验证结果：
 
 - `python -m pytest tests`：33 passed，1 skipped
-- `mcp-smoke`：通过，发现 5 个 MCP 工具
+- `mcp-smoke`：通过，发现 7 个 MCP 工具
 - `smoke-test`：真实 VexDB 入库和检索通过
 - `conflict-decay-test`：真实 VexDB 冲突裁决 + 遗忘归档通过
 - OpenClaw / Hermes 工具发现已验证

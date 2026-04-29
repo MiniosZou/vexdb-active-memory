@@ -5,6 +5,8 @@ def test_estimate_importance_uses_text_and_metadata_hints():
     assert estimate_importance("This is a critical policy requirement.") >= 4
     assert estimate_importance("temporary scratch note") <= 2
     assert estimate_importance("normal fact", {"importance": 5}) == 5
+    assert estimate_importance("normal fact", {"memory_type": "policy", "source_trust": 0.9}) >= 4
+    assert estimate_importance("normal fact", {"source_trust": 0.2, "confidence": 0.1}) <= 2
 
 
 def test_normalize_tags_deduplicates_and_limits_values():

@@ -10,6 +10,7 @@ class ActiveMemoryConfig:
     embedding_provider: str = "dashscope"
     embedding_model: str = "text-embedding-v3"
     embedding_dimensions: int = 1024
+    vector_type: str = "floatvector"
     dashscope_api_key: str = ""
     dedup_distance: float = 0.05
     conflict_distance: float = 0.12
@@ -22,11 +23,12 @@ class ActiveMemoryConfig:
 
     @classmethod
     def from_env(cls) -> "ActiveMemoryConfig":
-        return cls(
+        config = cls(
             db_uri=os.getenv("VEXDB_DSN", ""),
             embedding_provider=os.getenv("VEXDB_MEMORY_EMBEDDING_PROVIDER", "dashscope"),
             embedding_model=os.getenv("VEXDB_MEMORY_EMBEDDING_MODEL", "text-embedding-v3"),
             embedding_dimensions=int(os.getenv("VEXDB_MEMORY_EMBEDDING_DIMENSIONS", "1024")),
+            vector_type=os.getenv("VEXDB_MEMORY_VECTOR_TYPE", "floatvector"),
             dashscope_api_key=os.getenv("DASHSCOPE_API_KEY", ""),
             dedup_distance=float(os.getenv("VEXDB_MEMORY_DEDUP_DISTANCE", "0.05")),
             conflict_distance=float(os.getenv("VEXDB_MEMORY_CONFLICT_DISTANCE", "0.12")),
@@ -38,3 +40,11 @@ class ActiveMemoryConfig:
             min_connections=int(os.getenv("VEXDB_MEMORY_POOL_MIN", "1")),
             max_connections=int(os.getenv("VEXDB_MEMORY_POOL_MAX", "8")),
         )
+        if config.embedding_provider.lower() == "dashscope" and not config.dashscope_api_key:
+            raise ValueError("DASHSCOPE_API_KEY is required when VEXDB_MEMORY_EMBEDDING_PROVIDER=dashscope")
+        if config.vector_type.lower() not in {"floatvector", "vector"}:
+            raise ValueError("VEXDB_MEMORY_VECTOR_TYPE must be floatvector or vector")
+        return config
+
+    def vector_sql_type(self) -> str:
+        return self.vector_type.lower()

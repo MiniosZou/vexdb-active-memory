@@ -62,10 +62,12 @@ hermes mcp test vexdb-active-memory
 Expected result:
 
 - connected stdio transport
-- 5 tools discovered
+- 7 tools discovered
 - `vexdb_memory_status`
 - `vexdb_memory_add`
+- `vexdb_memory_batch_add`
 - `vexdb_memory_search`
+- `vexdb_memory_batch_search`
 - `vexdb_memory_resolve_conflict`
 - `vexdb_memory_apply_decay`
 

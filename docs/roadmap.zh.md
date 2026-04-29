@@ -9,7 +9,7 @@ VexDB Active Memory 的目标是在 2026-05-31 前完成 v0.1 MVP：让 VexDB �
 SMART 指标：
 
 - Specific：实现数据库原生语义 upsert、LLM/人工冲突裁决入口、自动遗忘归档、SDK 和 MCP 工具。
-- Measurable：MCP 暴露 5 个工具；本地可行性评分达到 9/10；真实 VexDB 上 `smoke-test` 和 `conflict-decay-test` 返回 `ok: true`。
+- Measurable：MCP 暴露核心写入、检索、批量写入、批量检索、裁决和遗忘工具；本地可行性评分达到 9/10；真实 VexDB 上 `smoke-test` 和 `conflict-decay-test` 返回 `ok: true`。
 - Achievable：v0.1 只依赖 VexDB 兼容 SQL、Python SDK、psycopg2 和可选 embedding provider；HNSW、PL/Python、REST、后台调度都按渐进能力处理。
 - Relevant：所有设计都围绕“VexDB 单独成为融合向量数据库的记忆体框架”，不把 Mem0、MemPalace、LangChain 或 LlamaIndex 作为运行依赖。
 - Time-bound：v0.1 在 2026-05-31 前完成；v0.2 在 v0.1 后两周内完成真实库闭环和性能基线；v1.0 再承诺生产 SLO。
@@ -122,15 +122,17 @@ v0.3 前不得把 LLM 裁决宣传为完全自动生产能力。进入生产口�
 已落地：
 
 - P0：冲突自动裁决开关已加入 SDK，可通过策略自动调用 `resolve_conflict(...)`；真实 OpenClaw/MCP 路径已验证 queued conflict -> auto resolution。
-- P0：记忆重要性自动评分已加入 SDK，未传 `importance` 时自动估算。
+- P0：记忆重要性自动评分已加入 SDK，未传 `importance` 时会综合关键词、记忆类型、来源可信度和置信度估算；LLM provider 仍作为后续增强。
 - P1：批量写入 `add_many(...)` 已加入 SDK。
+- P1：批量检索 `batch_search(...)` 和 MCP 批量工具已加入。
 - P1：标签/分类已加入 `tags` 字段并支持 MCP/SDK 检索过滤。
+- P1：`search_memory(...)` 已支持 SQL 层 metadata/tags/space_path 过滤。
 - P1：记忆组织层已加入 `space_path` 和 `memory_spaces`，为 Wings/Rooms/Collections 做数据库侧承载。
 - P1：自动记忆关联已加入 `link_related_memories(...)`，写入后可生成 `semantic_related` 链接。
 
 仍按后续版本推进：
 
-- PostgreSQL/pgvector：定位为兼容适配包，不替换 VexDB；需要单独 SQL 方言、测试矩阵和迁移说明。
+- PostgreSQL/pgvector：定位为兼容适配包，不替换 VexDB；客户端已支持 `VEXDB_MEMORY_VECTOR_TYPE=vector`，仍需要单独 SQL 方言、测试矩阵和迁移说明。
 - REST API：保持 P1 路线，不进入当前 v0.1 核心包。
 - 冲突样本集报表：需要 fixture、人工标注标准和准确率统计脚本。
 - AAAK 压缩、Web 审核台、容器化完整测试环境：列入 P2 或独立子项目。

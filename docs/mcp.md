@@ -110,6 +110,24 @@ Optional:
 - `importance`
 - `confidence`
 
+### vexdb_memory_batch_add
+
+Stores multiple memories in one MCP call. Each item may be a plain string or an
+object with `content`, `metadata`, `tags`, `space_path`, `importance`, and other
+single-add fields.
+
+Required:
+
+- `items`
+
+Optional:
+
+- `tenant_id`
+- `namespace`
+- `scope`
+- `memory_type`
+- `actor`
+
 ### vexdb_memory_search
 
 Searches active memories.
@@ -126,6 +144,28 @@ Optional:
 - `memory_type`
 - `limit`
 - `metadata_filter`
+- `tags`
+- `space_path`
+
+### vexdb_memory_batch_search
+
+Runs several retrieval queries in one MCP call and returns one result block per
+query.
+
+Required:
+
+- `queries`
+
+Optional:
+
+- `tenant_id`
+- `namespace`
+- `scope`
+- `memory_type`
+- `limit`
+- `metadata_filter`
+- `tags`
+- `space_path`
 
 ### vexdb_memory_resolve_conflict
 

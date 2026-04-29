@@ -39,13 +39,13 @@ class ActiveMemoryClient:
             try:
                 with conn.cursor() as cur:
                     cur.execute(
-                        """
+                        f"""
                         SELECT
                             current_database(),
                             current_schema(),
                             to_regnamespace('active_memory') IS NOT NULL,
                             to_regclass('active_memory.memories') IS NOT NULL
-                        """
+                        f"""
                     )
                     database, schema, active_memory_schema, memories_table = cur.fetchone()
                 conn.commit()
@@ -110,7 +110,14 @@ class ActiveMemoryClient:
         for item in items:
             if isinstance(item, str):
                 results.append(
-                    self.upsert(item, tenant_id=tenant_id, namespace=namespace, scope=scope, memory_type=memory_type, actor=actor)
+                    self.upsert(
+                        item,
+                        tenant_id=tenant_id,
+                        namespace=namespace,
+                        scope=scope,
+                        memory_type=memory_type,
+                        actor=actor,
+                    )
                 )
             else:
                 payload = dict(item)
@@ -132,6 +139,34 @@ class ActiveMemoryClient:
                 )
         return results
 
+    def batch_search(
+        self,
+        queries: list[str],
+        *,
+        tenant_id: str = "default",
+        namespace: str = "default",
+        scope: str = "global",
+        memory_type: str | None = None,
+        limit: int = 5,
+        metadata_filter: dict[str, Any] | None = None,
+        tags: list[str] | None = None,
+        space_path: str | None = None,
+    ) -> list[SearchResult]:
+        return [
+            self.search(
+                query,
+                tenant_id=tenant_id,
+                namespace=namespace,
+                scope=scope,
+                memory_type=memory_type,
+                limit=limit,
+                metadata_filter=metadata_filter,
+                tags=tags,
+                space_path=space_path,
+            )
+            for query in queries
+        ]
+
     def upsert(
         self,
         text: str,
@@ -152,11 +187,13 @@ class ActiveMemoryClient:
     ) -> dict[str, Any]:
         metadata = metadata or {}
         tag_values = normalize_tags(tags)
-        score = estimate_importance(text, metadata) if importance is None else importance
+        scoring_metadata = {**metadata, "memory_type": memory_type, "confidence": confidence}
+        score = estimate_importance(text, scoring_metadata) if importance is None else importance
         canonical = canonicalize(text)
         digest = content_hash(canonical)
         embedding = self.embedding_provider.embed([text])[0]
         vec = vector_literal(embedding)
+        vector_type = self.config.vector_sql_type()
         metadata_json = json.dumps(metadata, ensure_ascii=False)
         tags_json = json.dumps(tag_values, ensure_ascii=False)
         lock_key = advisory_lock_key(tenant_id, namespace, scope, canonical[:512])
@@ -166,10 +203,10 @@ class ActiveMemoryClient:
                 with conn.cursor() as cur:
                     memory_id = str(uuid.uuid4())
                     cur.execute(
-                        """
+                        f"""
                         SELECT memory_id, action, conflict_id, nearest_distance
                         FROM active_memory.upsert_memory(
-                            %s, %s, %s, %s, %s, %s, %s, %s, %s::floatvector,
+                            %s, %s, %s, %s, %s, %s, %s, %s, %s::{vector_type},
                             %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                         )
                         """,
@@ -243,42 +280,34 @@ class ActiveMemoryClient:
     ) -> SearchResult:
         embedding = self.embedding_provider.embed([query])[0]
         vec = vector_literal(embedding)
-        metadata_clause = ""
-        params: list[Any] = [vec, tenant_id, namespace, scope]
-        if memory_type:
-            metadata_clause += " AND memory_type = %s"
-            params.append(memory_type)
-        if metadata_filter:
-            metadata_clause += " AND metadata @> %s::jsonb"
-            params.append(json.dumps(metadata_filter, ensure_ascii=False))
+        vector_type = self.config.vector_sql_type()
         tag_values = normalize_tags(tags)
-        if tag_values:
-            metadata_clause += " AND tags @> %s::jsonb"
-            params.append(json.dumps(tag_values, ensure_ascii=False))
-        if space_path:
-            metadata_clause += " AND space_path = %s"
-            params.append(space_path)
-        params.append(max(1, min(limit, 100)))
+        metadata_json = json.dumps(metadata_filter or {}, ensure_ascii=False)
+        tags_json = json.dumps(tag_values, ensure_ascii=False)
 
         with self.pool.connection() as conn:
             try:
                 with conn.cursor() as cur:
                     cur.execute(
                         f"""
-                        SELECT id, content, metadata, tags, space_path, embedding <=> %s::floatvector AS distance,
+                        SELECT id, content, metadata, tags, space_path, distance,
                                tenant_id, namespace, scope, memory_type, importance,
                                confidence, access_count, updated_at
-                        FROM active_memory.memories
-                        WHERE tenant_id = %s
-                          AND namespace = %s
-                          AND scope = %s
-                          AND status = 'active'
-                          AND (valid_until IS NULL OR valid_until > now())
-                          {metadata_clause}
-                        ORDER BY embedding <=> %s::floatvector
-                        LIMIT %s
+                        FROM active_memory.search_memory(
+                            %s, %s, %s, %s::{vector_type}, %s, %s, %s::jsonb, %s::jsonb, %s
+                        )
                         """,
-                        params[:-1] + [vec, params[-1]],
+                        (
+                            tenant_id,
+                            namespace,
+                            scope,
+                            vec,
+                            max(1, min(limit, 100)),
+                            memory_type,
+                            metadata_json,
+                            tags_json,
+                            space_path,
+                        ),
                     )
                     rows = cur.fetchall()
                     ids = [row[0] for row in rows]

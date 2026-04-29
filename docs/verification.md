@@ -55,19 +55,24 @@ Additional OpenClaw/VexDB verification on 2026-04-28:
 - Automatic semantic linking was exercised through
   `active_memory.link_related_memories(...)`; `memory_links` contains
   `semantic_related` rows after insertion.
-- Current unit/contract suite: `38 passed, 1 skipped`.
+- OpenClaw stdio MCP batch write and batch search were verified through
+  `vexdb_memory_batch_add` and `vexdb_memory_batch_search` against local VexDB.
+- Current unit/contract suite: `45 passed, 1 skipped`.
 
 Sanitized evidence snippets from the verified local machine:
 
 ```text
 vexdb-memory mcp-smoke
 ok: true
-tools: vexdb_memory_status, vexdb_memory_add, vexdb_memory_search,
+tools: vexdb_memory_status, vexdb_memory_add, vexdb_memory_batch_add,
+  vexdb_memory_search, vexdb_memory_batch_search,
   vexdb_memory_resolve_conflict, vexdb_memory_apply_decay
 openclaw_tool_names:
   vexdb-active-memory__vexdb_memory_status
   vexdb-active-memory__vexdb_memory_add
+  vexdb-active-memory__vexdb_memory_batch_add
   vexdb-active-memory__vexdb_memory_search
+  vexdb-active-memory__vexdb_memory_batch_search
   vexdb-active-memory__vexdb_memory_resolve_conflict
   vexdb-active-memory__vexdb_memory_apply_decay
 

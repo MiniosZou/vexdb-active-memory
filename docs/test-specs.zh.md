@@ -5,7 +5,7 @@
 ## SMART 验收目标
 
 - 具体：v0.1 必须提供数据库原生 upsert、冲突队列裁决、遗忘归档、Python SDK 和 stdio MCP Server。
-- 可衡量：MCP 必须暴露 5 个工具；`smoke-test` 和 `conflict-decay-test` 必须在真实 VexDB 上返回 `ok: true`；总体评分必须达到 9/10。
+- 可衡量：MCP 必须暴露写入、检索、批量写入、批量检索、冲突裁决和遗忘工具；`smoke-test` 和 `conflict-decay-test` 必须在真实 VexDB 上返回 `ok: true`；总体评分必须达到 9/10。
 - 可实现：HNSW 和 PL/Python 按渐进增强处理，环境不支持时不能阻断基础写入、检索、裁决和归档。
 - 相关性：所有能力都服务于“VexDB 单独成为融合向量数据库的记忆体框架”，不依赖外部记忆体框架。
 - 有时限：v0.1 目标日期为 2026-05-31；v0.2 在 v0.1 后两周内补齐性能基线和真实 conflict/decay 证据；v1.0 再进入生产 SLO。
@@ -35,7 +35,9 @@ PYTHONPATH=python python -m vexdb_active_memory.cli mcp-smoke
 - 返回 `ok: true`
 - 暴露 `vexdb_memory_status`
 - 暴露 `vexdb_memory_add`
+- 暴露 `vexdb_memory_batch_add`
 - 暴露 `vexdb_memory_search`
+- 暴露 `vexdb_memory_batch_search`
 - 暴露 `vexdb_memory_resolve_conflict`
 - 暴露 `vexdb_memory_apply_decay`
 - 输出 OpenClaw 前缀工具名
@@ -156,8 +158,8 @@ hermes mcp test vexdb-active-memory
 通过标准：
 
 - 连接成功
-- 发现 5 个工具
-- 工具名包含 `vexdb_memory_status`、`vexdb_memory_add`、`vexdb_memory_search`、`vexdb_memory_resolve_conflict`、`vexdb_memory_apply_decay`
+- 发现 7 个工具
+- 工具名包含 `vexdb_memory_status`、`vexdb_memory_add`、`vexdb_memory_batch_add`、`vexdb_memory_search`、`vexdb_memory_batch_search`、`vexdb_memory_resolve_conflict`、`vexdb_memory_apply_decay`
 
 ## 当前实测评分
 

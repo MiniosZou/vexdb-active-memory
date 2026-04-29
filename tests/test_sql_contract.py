@@ -14,6 +14,10 @@ def test_search_function_uses_cosine_distance_operator():
     functions = (ROOT / "sql" / "002_functions.sql").read_text(encoding="utf-8")
     assert "<=>" in functions
     assert "search_memory" in functions
+    assert "p_metadata_filter JSONB" in functions
+    assert "p_tags JSONB" in functions
+    assert "p_space_path TEXT" in functions
+    assert "m.tags @> p_tags" in functions
 
 
 def test_database_native_memory_management_functions_exist():

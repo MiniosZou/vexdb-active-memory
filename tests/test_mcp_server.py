@@ -25,6 +25,43 @@ class FakeClient:
             "nearest_distance": 0.08,
         }
 
+    def add_many(self, items, **kwargs):
+        return [
+            {
+                "id": f"00000000-0000-0000-0000-00000000000{index + 1}",
+                "action": "inserted",
+                "conflict_id": None,
+                "nearest_distance": None,
+            }
+            for index, _ in enumerate(items)
+        ]
+
+    def batch_search(self, queries, **kwargs):
+        return [FakeSearchResult(query) for query in queries]
+
+
+class FakeMemory:
+    def __init__(self, content):
+        self.id = "00000000-0000-0000-0000-000000000001"
+        self.content = content
+        self.metadata = {}
+        self.tags = []
+        self.space_path = "global"
+        self.distance = 0.1
+
+
+class FakeSearchResult:
+    def __init__(self, query):
+        self.memories = [FakeMemory(f"result for {query}")]
+
+    def to_mcp_compatible(self):
+        return {
+            "ids": [[memory.id for memory in self.memories]],
+            "distances": [[memory.distance for memory in self.memories]],
+            "documents": [[memory.content for memory in self.memories]],
+            "metadatas": [[memory.metadata for memory in self.memories]],
+        }
+
 
 def test_tools_list_exposes_strict_agent_friendly_schemas():
     response = mcp._handle_request({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}})
@@ -33,7 +70,9 @@ def test_tools_list_exposes_strict_agent_friendly_schemas():
     assert set(tools) == {
         "vexdb_memory_status",
         "vexdb_memory_add",
+        "vexdb_memory_batch_add",
         "vexdb_memory_search",
+        "vexdb_memory_batch_search",
         "vexdb_memory_resolve_conflict",
         "vexdb_memory_apply_decay",
     }
@@ -47,6 +86,8 @@ def test_tools_list_exposes_strict_agent_friendly_schemas():
         "reject",
     ]
     assert tools["vexdb_memory_apply_decay"]["inputSchema"]["properties"]["min_access_count"]["minimum"] == 0
+    assert tools["vexdb_memory_batch_add"]["inputSchema"]["required"] == ["items"]
+    assert tools["vexdb_memory_batch_search"]["inputSchema"]["required"] == ["queries"]
 
 
 def test_add_returns_conflict_metadata_for_resolution(monkeypatch):
@@ -63,6 +104,44 @@ def test_add_returns_conflict_metadata_for_resolution(monkeypatch):
 
     assert payload["action"] == "queued_conflict"
     assert payload["conflict_id"] == "00000000-0000-0000-0000-000000000002"
+
+
+def test_batch_add_returns_count_and_results(monkeypatch):
+    monkeypatch.setattr(mcp, "_client", FakeClient())
+    response = mcp._handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "vexdb_memory_batch_add",
+                "arguments": {"items": ["alpha", {"content": "beta"}]},
+            },
+        }
+    )
+    payload = json.loads(response["result"]["content"][0]["text"])
+
+    assert payload["count"] == 2
+    assert len(payload["results"]) == 2
+
+
+def test_batch_search_returns_results_per_query(monkeypatch):
+    monkeypatch.setattr(mcp, "_client", FakeClient())
+    response = mcp._handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "vexdb_memory_batch_search",
+                "arguments": {"queries": ["alpha", "beta"]},
+            },
+        }
+    )
+    payload = json.loads(response["result"]["content"][0]["text"])
+
+    assert [item["query"] for item in payload["results"]] == ["alpha", "beta"]
+    assert payload["results"][0]["memories"][0]["content"] == "result for alpha"
 
 
 def test_tool_call_rejects_unknown_arguments():
@@ -137,6 +216,8 @@ def test_tool_call_rejects_bad_argument_types_and_ranges():
         {"name": "vexdb_memory_add", "arguments": {"content": "hello", "confidence": 2}},
         {"name": "vexdb_memory_search", "arguments": {"query": ""}},
         {"name": "vexdb_memory_search", "arguments": {"query": "hello", "metadata_filter": "not-object"}},
+        {"name": "vexdb_memory_batch_add", "arguments": {"items": []}},
+        {"name": "vexdb_memory_batch_search", "arguments": {"queries": ["ok", ""]}},
     ]
 
     for params in cases:

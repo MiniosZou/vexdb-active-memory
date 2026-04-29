@@ -30,6 +30,15 @@ def _get_client() -> ActiveMemoryClient:
     global _client
     if _client is None:
         _client = ActiveMemoryClient.from_env()
+    else:
+        try:
+            _client.health()
+        except Exception:
+            try:
+                _client.close()
+            except Exception:
+                pass
+            _client = ActiveMemoryClient.from_env()
     return _client
 
 
@@ -97,6 +106,29 @@ def tool_add(
     return result
 
 
+def tool_batch_add(
+    items: list[Any],
+    tenant_id: str = "default",
+    namespace: str = "default",
+    scope: str = "global",
+    memory_type: str = "fact",
+    actor: str | None = None,
+) -> dict[str, Any]:
+    if not items:
+        raise ValueError("Invalid value for items")
+    if len(items) > 100:
+        raise ValueError("Invalid value for items")
+    results = _get_client().add_many(
+        items,
+        tenant_id=tenant_id,
+        namespace=namespace,
+        scope=scope,
+        memory_type=memory_type,
+        actor=actor,
+    )
+    return {"count": len(results), "results": results}
+
+
 def tool_search(
     query: str,
     tenant_id: str = "default",
@@ -140,6 +172,55 @@ def tool_search(
             for item in result.memories
         ],
         "mcp_compatible": result.to_mcp_compatible(),
+    }
+
+
+def tool_batch_search(
+    queries: list[Any],
+    tenant_id: str = "default",
+    namespace: str = "default",
+    scope: str = "global",
+    memory_type: str | None = None,
+    limit: int = 5,
+    metadata_filter: dict[str, Any] | None = None,
+    tags: list[str] | None = None,
+    space_path: str | None = None,
+) -> dict[str, Any]:
+    clean_queries = [query for query in queries if isinstance(query, str) and query.strip()]
+    if not clean_queries or len(clean_queries) != len(queries):
+        raise ValueError("Invalid value for queries")
+    if len(clean_queries) > 50:
+        raise ValueError("Invalid value for queries")
+    results = _get_client().batch_search(
+        clean_queries,
+        tenant_id=tenant_id,
+        namespace=namespace,
+        scope=scope,
+        memory_type=memory_type,
+        limit=limit,
+        metadata_filter=metadata_filter,
+        tags=tags,
+        space_path=space_path,
+    )
+    return {
+        "results": [
+            {
+                "query": query,
+                "memories": [
+                    {
+                        "id": item.id,
+                        "content": item.content,
+                        "metadata": item.metadata,
+                        "tags": item.tags,
+                        "space_path": item.space_path,
+                        "distance": item.distance,
+                    }
+                    for item in result.memories
+                ],
+                "mcp_compatible": result.to_mcp_compatible(),
+            }
+            for query, result in zip(clean_queries, results, strict=True)
+        ]
     }
 
 
@@ -217,6 +298,29 @@ TOOLS: dict[str, dict[str, Any]] = {
         },
         "handler": tool_add,
     },
+    "vexdb_memory_batch_add": {
+        "description": (
+            "Store multiple durable memories in VexDB Active Memory in one MCP call. "
+            "Use this when an agent extracts several facts, preferences, or task notes at once."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "description": "List of memory strings or objects with content, metadata, tags, and space_path.",
+                },
+                "tenant_id": {"type": "string", "description": "Tenant partition. Defaults to default."},
+                "namespace": {"type": "string", "description": "Application or agent namespace."},
+                "scope": {"type": "string", "description": "Memory scope, such as global, user id, or session id."},
+                "memory_type": {"type": "string", "description": "Default memory type for string items."},
+                "actor": {"type": "string", "description": "Agent or user writing the memories."},
+            },
+            "required": ["items"],
+            "additionalProperties": False,
+        },
+        "handler": tool_batch_add,
+    },
     "vexdb_memory_search": {
         "description": (
             "Search durable memories stored in VexDB Active Memory. Use this when the user asks what is remembered, "
@@ -239,6 +343,29 @@ TOOLS: dict[str, dict[str, Any]] = {
             "additionalProperties": False,
         },
         "handler": tool_search,
+    },
+    "vexdb_memory_batch_search": {
+        "description": (
+            "Run multiple retrieval queries against VexDB Active Memory in one MCP call. "
+            "Use this when an agent needs several memory lookups before planning."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "queries": {"type": "array", "description": "List of natural-language retrieval queries."},
+                "tenant_id": {"type": "string", "description": "Tenant partition. Defaults to default."},
+                "namespace": {"type": "string", "description": "Application or agent namespace."},
+                "scope": {"type": "string", "description": "Memory scope to search."},
+                "memory_type": {"type": "string", "description": "Optional memory category filter."},
+                "limit": {"type": "integer", "description": "Maximum number of memories per query, capped at 100."},
+                "metadata_filter": {"type": "object", "description": "JSON metadata containment filter."},
+                "tags": {"type": "array", "description": "Require memories to contain these tags."},
+                "space_path": {"type": "string", "description": "Optional hierarchical memory space path filter."},
+            },
+            "required": ["queries"],
+            "additionalProperties": False,
+        },
+        "handler": tool_batch_search,
     },
     "vexdb_memory_resolve_conflict": {
         "description": (

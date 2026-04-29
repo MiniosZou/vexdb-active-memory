@@ -79,6 +79,7 @@ def test_search_commits_even_when_no_rows_are_returned():
     result = make_client(conn).search("nothing", namespace="tests", scope="empty")
 
     assert result.memories == []
+    assert any("active_memory.search_memory" in statement for statement in conn.last_cursor.statements)
     assert conn.commits == 1
     assert conn.rollbacks == 0
 

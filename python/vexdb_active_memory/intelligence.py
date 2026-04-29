@@ -45,9 +45,22 @@ def estimate_importance(text: str, metadata: dict[str, Any] | None = None) -> in
 
     lowered = text.lower()
     score = 3
+    memory_type = str(metadata.get("memory_type", "")).lower()
+    source_trust = metadata.get("source_trust")
+    confidence = metadata.get("confidence")
+
     if any(term in lowered for term in HIGH_IMPORTANCE_TERMS):
         score += 1
     if any(term in lowered for term in LOW_IMPORTANCE_TERMS):
+        score -= 1
+    if memory_type in {"policy", "preference", "requirement"}:
+        score += 1
+    if isinstance(source_trust, (int, float)):
+        if source_trust >= 0.8:
+            score += 1
+        elif source_trust <= 0.3:
+            score -= 1
+    if isinstance(confidence, (int, float)) and confidence < 0.4:
         score -= 1
     if len(text) > 240:
         score += 1

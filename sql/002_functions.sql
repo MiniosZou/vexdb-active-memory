@@ -38,6 +38,7 @@ END;
 $$ LANGUAGE plpgsql;
 
 DROP FUNCTION IF EXISTS active_memory.search_memory(TEXT, TEXT, TEXT, floatvector, INTEGER, TEXT);
+DROP FUNCTION IF EXISTS active_memory.search_memory(TEXT, TEXT, TEXT, floatvector, INTEGER, TEXT, JSONB, JSONB, TEXT);
 DROP FUNCTION IF EXISTS active_memory.upsert_memory(
     UUID, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, floatvector, JSONB,
     TEXT, TEXT, TEXT, INTEGER, NUMERIC, DOUBLE PRECISION, DOUBLE PRECISION,
@@ -55,7 +56,10 @@ CREATE OR REPLACE FUNCTION active_memory.search_memory(
     p_scope TEXT,
     p_embedding floatvector,
     p_limit INTEGER DEFAULT 5,
-    p_memory_type TEXT DEFAULT NULL
+    p_memory_type TEXT DEFAULT NULL,
+    p_metadata_filter JSONB DEFAULT '{}'::jsonb,
+    p_tags JSONB DEFAULT '[]'::jsonb,
+    p_space_path TEXT DEFAULT NULL
 )
 RETURNS TABLE (
     id UUID,
@@ -96,6 +100,9 @@ BEGIN
       AND m.scope = p_scope
       AND m.status = 'active'
       AND (p_memory_type IS NULL OR m.memory_type = p_memory_type)
+      AND (COALESCE(p_metadata_filter, '{}'::jsonb) = '{}'::jsonb OR m.metadata @> p_metadata_filter)
+      AND (COALESCE(p_tags, '[]'::jsonb) = '[]'::jsonb OR m.tags @> p_tags)
+      AND (p_space_path IS NULL OR p_space_path = '' OR m.space_path = p_space_path)
       AND (m.valid_until IS NULL OR m.valid_until > now())
     ORDER BY m.embedding <=> p_embedding
     LIMIT GREATEST(1, p_limit);
