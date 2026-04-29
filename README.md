@@ -16,21 +16,6 @@ VexDB Active Memory 是一个 **数据库原生智能记忆框架**。它基于 
 ![Tests](https://img.shields.io/badge/tests-38%20passed-brightgreen)
 ![License](https://img.shields.io/badge/license-Proprietary-lightgrey)
 
----
-
-## 当前新增能力
-
-本轮优化继续保持 VexDB 为主引擎，不替换为其他数据库。PostgreSQL/pgvector 只作为后续兼容适配目标，用于降低迁移和试点门槛；核心定位仍然是 VexDB 原生智能记忆。
-
-- **记忆组织层**：`memories.tags` 支持多标签过滤，`memories.space_path` 支持类似 `wing/procurement/room/preferences` 的层级空间；新增 `active_memory.memory_spaces`，为 Wings / Rooms / Collections 做数据库侧建模。
-- **自动重要性评分**：SDK 写入时如果未传 `importance`，会根据内容和元数据做轻量评分，避免所有记忆默认同权。
-- **批量写入入口**：Python SDK 新增 `add_many(...)`，方便 Agent 一次提交多条事实、偏好或任务上下文。
-- **自动冲突裁决开关**：`VEXDB_MEMORY_AUTO_RESOLVE_CONFLICTS=true` 时，可用 `heuristic/update/append/reject` 策略自动调用 `resolve_conflict(...)`；生产 LLM 裁决仍建议接人工复核或质量门禁。
-- **自动记忆关联**：新增 `active_memory.link_related_memories(...)`，写入新记忆后自动在 `memory_links` 中建立 `semantic_related` 关系。
-- **OpenClaw 实测**：已通过 stdio MCP 插入多条带标签、空间路径的真实 VexDB 记忆，并完成多轮过滤检索与自动冲突裁决验证。
-
-暂未宣称已完成：托管式 LLM provider、REST API、Web 审核台、AAAK 压缩、完整 pgvector 兼容 SQL 包。这些属于后续版本，不影响当前 VexDB 原生主线。
-
 ## 30 秒理解
 
 传统记忆框架大多是：

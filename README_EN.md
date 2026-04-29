@@ -15,27 +15,6 @@ new memory is duplicate, conflicting, stale, or worth keeping.
 ![MCP](https://img.shields.io/badge/MCP-stdio-purple)
 ![Tests](https://img.shields.io/badge/tests-38%20passed-brightgreen)
 
----
-
-## Current Additions
-
-This project keeps VexDB as the primary engine. PostgreSQL/pgvector is treated
-as a future compatibility adapter, not a replacement for the VexDB-native
-memory core.
-
-- Memory organization: `tags`, hierarchical `space_path`, and
-  `active_memory.memory_spaces` for Wings / Rooms / Collections.
-- Automatic importance scoring when callers do not provide `importance`.
-- SDK batch writes through `add_many(...)`.
-- Optional automatic conflict resolution through
-  `VEXDB_MEMORY_AUTO_RESOLVE_CONFLICTS` and a policy switch.
-- Automatic semantic links through `active_memory.link_related_memories(...)`.
-- OpenClaw stdio MCP verification with real VexDB inserts, tag/space searches,
-  and auto conflict resolution.
-
-Not claimed as complete yet: hosted LLM adjudicator providers, REST API, web
-review console, AAAK compression, and a full pgvector SQL compatibility pack.
-
 ## Why This Exists
 
 Most AI memory systems look like this:
