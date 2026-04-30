@@ -12,6 +12,7 @@ class ActiveMemoryConfig:
     embedding_dimensions: int = 1024
     vector_type: str = "floatvector"
     dashscope_api_key: str = ""
+    rest_api_key: str = ""
     dedup_distance: float = 0.05
     conflict_distance: float = 0.12
     auto_resolve_conflicts: bool = False
@@ -30,6 +31,7 @@ class ActiveMemoryConfig:
             embedding_dimensions=int(os.getenv("VEXDB_MEMORY_EMBEDDING_DIMENSIONS", "1024")),
             vector_type=os.getenv("VEXDB_MEMORY_VECTOR_TYPE", "floatvector"),
             dashscope_api_key=os.getenv("DASHSCOPE_API_KEY", ""),
+            rest_api_key=os.getenv("VEXDB_MEMORY_REST_API_KEY", ""),
             dedup_distance=float(os.getenv("VEXDB_MEMORY_DEDUP_DISTANCE", "0.05")),
             conflict_distance=float(os.getenv("VEXDB_MEMORY_CONFLICT_DISTANCE", "0.12")),
             auto_resolve_conflicts=os.getenv("VEXDB_MEMORY_AUTO_RESOLVE_CONFLICTS", "false").lower()

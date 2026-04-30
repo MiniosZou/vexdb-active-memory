@@ -5,7 +5,11 @@ from vexdb_active_memory.config import ActiveMemoryConfig
 
 
 class FakeEmbeddingProvider:
+    def __init__(self):
+        self.calls = []
+
     def embed(self, texts):
+        self.calls.append(list(texts))
         return [[0.1] * 1024 for _ in texts]
 
 
@@ -29,6 +33,8 @@ class FakeCursor:
             self.params.append(args[1])
 
     def fetchone(self):
+        if any("active_memory.reinforce_memories" in statement for statement in self.statements):
+            return (0,)
         if any("active_memory.upsert_memory" in statement for statement in self.statements):
             return ("00000000-0000-0000-0000-000000000001", "inserted", None, None)
         return ("vastbase", "public", True, True)
@@ -63,9 +69,9 @@ class FakePool:
         yield self.conn
 
 
-def make_client(conn):
+def make_client(conn, embedding_provider=None):
     config = ActiveMemoryConfig(db_uri="postgresql://unused", embedding_provider="mock")
-    return ActiveMemoryClient(config, embedding_provider=FakeEmbeddingProvider(), pool=FakePool(conn))
+    return ActiveMemoryClient(config, embedding_provider=embedding_provider or FakeEmbeddingProvider(), pool=FakePool(conn))
 
 
 def test_health_commits_read_transaction_before_returning_connection():
@@ -142,3 +148,28 @@ def test_upsert_call_keeps_legacy_lock_and_request_positions_before_ttl():
     assert params[23] is None
     assert params[24] == "2099-01-01T00:00:00Z"
     assert params[25] is None
+
+
+def test_batch_search_embeds_queries_in_one_provider_call():
+    conn = FakeConnection()
+    embeddings = FakeEmbeddingProvider()
+    make_client(conn, embedding_provider=embeddings).batch_search(["alpha", "beta"], namespace="tests", scope="batch")
+
+    assert embeddings.calls == [["alpha", "beta"]]
+
+
+def test_add_many_atomic_uses_one_transaction_for_batch():
+    conn = FakeConnection()
+    embeddings = FakeEmbeddingProvider()
+    results = make_client(conn, embedding_provider=embeddings).add_many(
+        ["alpha", "beta"],
+        namespace="tests",
+        scope="batch",
+        atomic=True,
+    )
+
+    assert len(results) == 2
+    assert conn.commits == 1
+    assert conn.rollbacks == 0
+    assert len(conn.last_cursor.statements) == 2
+    assert embeddings.calls == [["alpha"], ["beta"]]

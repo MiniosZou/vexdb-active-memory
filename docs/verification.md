@@ -1,6 +1,6 @@
 # Verification Notes
 
-Date: 2026-04-27
+Date: 2026-04-30
 
 Environment:
 
@@ -61,7 +61,7 @@ Additional OpenClaw/VexDB verification on 2026-04-28:
   by `active_memory.link_related_memories(...)`.
 - OpenClaw stdio MCP conflict report returned pending/resolved decision counts
   through `vexdb_memory_conflict_report`.
-- Current unit/contract suite: `50 passed, 1 skipped`.
+- Current unit/contract suite: `52 passed, 1 skipped`.
 
 Sanitized evidence snippets from the verified local machine:
 
@@ -103,6 +103,23 @@ vexdb-memory conflict-decay-test
 ok: true
 events: ARCHIVE=1, RESOLVE=1
 ```
+
+Additional review-fix verification on 2026-04-30:
+
+- SQL schema and function updates were applied to the local VexDB container by
+  the container admin user.
+- `active_memory.upsert_memory(...)` now locks the nearest candidate in the
+  first vector query with `FOR UPDATE SKIP LOCKED`.
+- `active_memory.random_uuid()` now emits UUIDs with v4-compatible version and
+  variant bits.
+- `vexdb-memory smoke-test` returned `ok: true` against local VexDB.
+- `vexdb-memory conflict-decay-test` returned `ok: true` against local VexDB
+  with `RESOLVE` and `ARCHIVE` events.
+- The OpenClaw wrapper accepted a direct `vexdb_memory_status` MCP call from
+  WSL and returned `database.ok: true`.
+- `hermes mcp test vexdb-active-memory` connected successfully and discovered
+  10 tools.
+- Unit and contract tests returned `52 passed, 1 skipped`.
 
 These snippets intentionally omit DSNs, passwords, API keys, and full record
 payloads. Re-run the commands in `docs/test-specs.zh.md` on each new machine.

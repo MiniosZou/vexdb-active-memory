@@ -15,7 +15,8 @@ v0.1 is the current MVP. It includes the SQL core, Python SDK, stdio MCP server,
 OpenClaw/Hermes setup helpers, semantic upsert, conflict queue resolution,
 optional policy-driven auto resolution, hierarchical `space_path` organization,
 multi-tag filtering, automatic importance scoring, automatic semantic links,
-and manual forgetting-curve execution.
+batch writes with optional atomic rollback, and manual forgetting-curve
+execution.
 
 v0.2 must add repeatable VexDB-backed conflict/decay verification and publish
 clear performance baselines for write, search, conflict resolution, and decay.
@@ -111,7 +112,19 @@ available through `vexdb-active-memory[api]` and
 `vexdb_active_memory.rest_api:create_app`. For uvicorn, run it as a factory, for
 example `uvicorn vexdb_active_memory.rest_api:create_app --factory`. It
 delegates to the same SDK and SQL functions, so VexDB remains the owner of
-memory behavior.
+memory behavior. Set `VEXDB_MEMORY_REST_API_KEY` to require `X-API-Key` on REST
+write/search/report routes; without that variable the adapter is intended only
+for trusted local development.
+
+## Scope And Space
+
+`scope` and `space_path` intentionally solve different problems:
+
+- `scope` is the data isolation boundary, such as `global`, `tenant:acme`,
+  `user:zouzh`, or `session:abc`. Search and upsert do not cross scopes.
+- `space_path` is hierarchical organization inside a scope, such as
+  `wing/procurement/room/preferences`. It is for browsing, filtering, and graph
+  grouping, not for access isolation.
 
 ## VexDB Notes
 

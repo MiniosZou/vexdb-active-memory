@@ -119,6 +119,7 @@ def tool_batch_add(
     scope: str = "global",
     memory_type: str = "fact",
     actor: str | None = None,
+    atomic: bool = False,
 ) -> dict[str, Any]:
     if not items:
         raise ValueError("Invalid value for items")
@@ -131,6 +132,7 @@ def tool_batch_add(
         scope=scope,
         memory_type=memory_type,
         actor=actor,
+        atomic=atomic,
     )
     return {"count": len(results), "results": results}
 

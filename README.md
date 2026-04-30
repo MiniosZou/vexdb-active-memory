@@ -13,7 +13,7 @@ VexDB Active Memory 是一个 **数据库原生智能记忆框架**。它基于 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
 ![VexDB](https://img.shields.io/badge/VexDB-vector%20database-green)
 ![MCP](https://img.shields.io/badge/MCP-stdio-purple)
-![Tests](https://img.shields.io/badge/tests-50%20passed-brightgreen)
+![Tests](https://img.shields.io/badge/tests-52%20passed-brightgreen)
 ![License](https://img.shields.io/badge/license-Proprietary-lightgrey)
 
 ## 30 秒理解

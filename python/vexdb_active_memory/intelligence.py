@@ -62,8 +62,6 @@ def estimate_importance(text: str, metadata: dict[str, Any] | None = None) -> in
             score -= 1
     if isinstance(confidence, (int, float)) and confidence < 0.4:
         score -= 1
-    if len(text) > 240:
-        score += 1
     return max(1, min(5, score))
 
 

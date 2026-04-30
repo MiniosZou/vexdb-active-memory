@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from typing import Any
 
@@ -10,6 +11,8 @@ from .embedding import EmbeddingProvider, provider_from_config
 from .intelligence import auto_conflict_decision, estimate_importance, normalize_tags
 from .models import MemoryRecord, SearchResult
 from .normalize import advisory_lock_key, canonicalize, content_hash
+
+logger = logging.getLogger(__name__)
 
 
 def _uuid_text(value: Any) -> str:
@@ -45,7 +48,7 @@ class ActiveMemoryClient:
                             current_schema(),
                             to_regnamespace('active_memory') IS NOT NULL,
                             to_regclass('active_memory.memories') IS NOT NULL
-                        f"""
+                        """
                     )
                     database, schema, active_memory_schema, memories_table = cur.fetchone()
                 conn.commit()
@@ -111,7 +114,18 @@ class ActiveMemoryClient:
         scope: str = "global",
         memory_type: str = "fact",
         actor: str | None = None,
+        atomic: bool = False,
     ) -> list[dict[str, Any]]:
+        if atomic:
+            return self._add_many_atomic(
+                items,
+                tenant_id=tenant_id,
+                namespace=namespace,
+                scope=scope,
+                memory_type=memory_type,
+                actor=actor,
+            )
+
         results: list[dict[str, Any]] = []
         for item in items:
             if isinstance(item, str):
@@ -148,6 +162,86 @@ class ActiveMemoryClient:
                 )
         return results
 
+    def _add_many_atomic(
+        self,
+        items: list[str | dict[str, Any]],
+        *,
+        tenant_id: str,
+        namespace: str,
+        scope: str,
+        memory_type: str,
+        actor: str | None,
+    ) -> list[dict[str, Any]]:
+        normalized_items: list[tuple[str, dict[str, Any], dict[str, Any]]] = []
+        for item in items:
+            if isinstance(item, str):
+                normalized_items.append((
+                    item,
+                    {},
+                    {
+                        "tenant_id": tenant_id,
+                        "namespace": namespace,
+                        "scope": scope,
+                        "memory_type": memory_type,
+                        "actor": actor,
+                    },
+                ))
+            else:
+                payload = dict(item)
+                content = payload.pop("content")
+                metadata = payload.pop("metadata", None) or {}
+                options = {
+                    "tenant_id": payload.pop("tenant_id", tenant_id),
+                    "namespace": payload.pop("namespace", namespace),
+                    "scope": payload.pop("scope", scope),
+                    "memory_type": payload.pop("memory_type", memory_type),
+                    "actor": payload.pop("actor", actor),
+                    "source": payload.pop("source", None),
+                    "subject": payload.pop("subject", None),
+                    "importance": payload.pop("importance", None),
+                    "confidence": payload.pop("confidence", 1.0),
+                    "tags": payload.pop("tags", None),
+                    "space_path": payload.pop("space_path", "global"),
+                    "valid_from": payload.pop("valid_from", None),
+                    "valid_until": payload.pop("valid_until", None),
+                    "expires_at": payload.pop("expires_at", None),
+                    "request_id": payload.pop("request_id", None),
+                }
+                normalized_items.append((content, metadata, options))
+
+        with self.pool.connection() as conn:
+            try:
+                results: list[dict[str, Any]] = []
+                with conn.cursor() as cur:
+                    for content, metadata, options in normalized_items:
+                        results.append(
+                            self._execute_upsert(
+                                cur,
+                                content,
+                                metadata,
+                                tenant_id=options.get("tenant_id", tenant_id),
+                                namespace=options.get("namespace", namespace),
+                                scope=options.get("scope", scope),
+                                memory_type=options.get("memory_type", memory_type),
+                                source=options.get("source"),
+                                actor=options.get("actor"),
+                                subject=options.get("subject"),
+                                importance=options.get("importance"),
+                                confidence=options.get("confidence", 1.0),
+                                tags=options.get("tags"),
+                                space_path=options.get("space_path", "global"),
+                                valid_from=options.get("valid_from"),
+                                valid_until=options.get("valid_until"),
+                                expires_at=options.get("expires_at"),
+                                request_id=options.get("request_id"),
+                            )
+                        )
+                conn.commit()
+                return results
+            except Exception:
+                conn.rollback()
+                raise
+
     def batch_search(
         self,
         queries: list[str],
@@ -161,9 +255,11 @@ class ActiveMemoryClient:
         tags: list[str] | None = None,
         space_path: str | None = None,
     ) -> list[SearchResult]:
+        embeddings = self.embedding_provider.embed(queries)
         return [
-            self.search(
+            self._search_with_embedding(
                 query,
+                embedding,
                 tenant_id=tenant_id,
                 namespace=namespace,
                 scope=scope,
@@ -173,7 +269,7 @@ class ActiveMemoryClient:
                 tags=tags,
                 space_path=space_path,
             )
-            for query in queries
+            for query, embedding in zip(queries, embeddings, strict=True)
         ]
 
     def upsert(
@@ -185,6 +281,70 @@ class ActiveMemoryClient:
         namespace: str = "default",
         scope: str = "global",
         memory_type: str = "fact",
+        source: str | None = None,
+        actor: str | None = None,
+        subject: str | None = None,
+        importance: int | None = None,
+        confidence: float = 1.0,
+        tags: list[str] | None = None,
+        space_path: str = "global",
+        valid_from: str | None = None,
+        valid_until: str | None = None,
+        expires_at: str | None = None,
+        request_id: str | None = None,
+    ) -> dict[str, Any]:
+        with self.pool.connection() as conn:
+            try:
+                with conn.cursor() as cur:
+                    result = self._execute_upsert(
+                        cur,
+                        text,
+                        metadata,
+                        tenant_id=tenant_id,
+                        namespace=namespace,
+                        scope=scope,
+                        memory_type=memory_type,
+                        source=source,
+                        actor=actor,
+                        subject=subject,
+                        importance=importance,
+                        confidence=confidence,
+                        tags=tags,
+                        space_path=space_path,
+                        valid_from=valid_from,
+                        valid_until=valid_until,
+                        expires_at=expires_at,
+                        request_id=request_id,
+                    )
+                conn.commit()
+                if result["conflict_id"] and self.config.auto_resolve_conflicts:
+                    decision = auto_conflict_decision(
+                        self.config.auto_resolve_policy,
+                        nearest_distance=result["nearest_distance"],
+                    )
+                    if decision:
+                        result["auto_resolution"] = self.resolve_conflict(
+                            result["conflict_id"],
+                            decision,
+                            actor=actor,
+                            request_id=request_id,
+                            metadata={"auto_policy": self.config.auto_resolve_policy},
+                        )
+                return result
+            except Exception:
+                conn.rollback()
+                raise
+
+    def _execute_upsert(
+        self,
+        cur: Any,
+        text: str,
+        metadata: dict[str, Any] | None,
+        *,
+        tenant_id: str,
+        namespace: str,
+        scope: str,
+        memory_type: str,
         source: str | None = None,
         actor: str | None = None,
         subject: str | None = None,
@@ -209,77 +369,56 @@ class ActiveMemoryClient:
         metadata_json = json.dumps(metadata, ensure_ascii=False)
         tags_json = json.dumps(tag_values, ensure_ascii=False)
         lock_key = advisory_lock_key(tenant_id, namespace, scope, canonical[:512])
+        memory_id = str(uuid.uuid4())
 
-        with self.pool.connection() as conn:
-            try:
-                with conn.cursor() as cur:
-                    memory_id = str(uuid.uuid4())
-                    cur.execute(
-                        f"""
-                        SELECT memory_id, action, conflict_id, nearest_distance
-                        FROM active_memory.upsert_memory(
-                            %s, %s, %s, %s, %s, %s, %s, %s, %s::{vector_type},
-                            %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                            %s, %s::timestamptz, %s::timestamptz, %s::timestamptz
-                        )
-                        """,
-                        (
-                            memory_id,
-                            tenant_id,
-                            namespace,
-                            scope,
-                            memory_type,
-                            text,
-                            canonical,
-                            digest,
-                            vec,
-                            metadata_json,
-                            tags_json,
-                            space_path,
-                            source,
-                            actor,
-                            subject,
-                            score,
-                            confidence,
-                            self.config.dedup_distance,
-                            self.config.conflict_distance,
-                            self.config.auto_link_distance,
-                            self.config.auto_link_limit,
-                            lock_key,
-                            request_id,
-                            valid_from,
-                            valid_until,
-                            expires_at,
-                        ),
-                    )
-                    row = cur.fetchone()
-                conn.commit()
-                result = {
-                    "id": _uuid_text(row[0]),
-                    "action": row[1],
-                    "conflict_id": _uuid_text(row[2]) if row[2] else None,
-                    "nearest_distance": float(row[3]) if row[3] is not None else None,
-                    "importance": score,
-                    "tags": tag_values,
-                    "space_path": space_path,
-                }
-                if result["conflict_id"] and self.config.auto_resolve_conflicts:
-                    decision = auto_conflict_decision(
-                        self.config.auto_resolve_policy,
-                        nearest_distance=result["nearest_distance"],
-                    )
-                    if decision:
-                        result["auto_resolution"] = self.resolve_conflict(
-                            result["conflict_id"],
-                            decision,
-                            actor=actor,
-                            request_id=request_id,
-                            metadata={"auto_policy": self.config.auto_resolve_policy},
-                        )
-                return result
-            except Exception:
-                conn.rollback()
-                raise
+        cur.execute(
+            f"""
+            SELECT memory_id, action, conflict_id, nearest_distance
+            FROM active_memory.upsert_memory(
+                %s, %s, %s, %s, %s, %s, %s, %s, %s::{vector_type},
+                %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                %s, %s::timestamptz, %s::timestamptz, %s::timestamptz
+            )
+            """,
+            (
+                memory_id,
+                tenant_id,
+                namespace,
+                scope,
+                memory_type,
+                text,
+                canonical,
+                digest,
+                vec,
+                metadata_json,
+                tags_json,
+                space_path,
+                source,
+                actor,
+                subject,
+                score,
+                confidence,
+                self.config.dedup_distance,
+                self.config.conflict_distance,
+                self.config.auto_link_distance,
+                self.config.auto_link_limit,
+                lock_key,
+                request_id,
+                valid_from,
+                valid_until,
+                expires_at,
+            ),
+        )
+        row = cur.fetchone()
+        return {
+            "id": _uuid_text(row[0]),
+            "action": row[1],
+            "conflict_id": _uuid_text(row[2]) if row[2] else None,
+            "nearest_distance": float(row[3]) if row[3] is not None else None,
+            "importance": score,
+            "tags": tag_values,
+            "space_path": space_path,
+        }
 
     def search(
         self,
@@ -295,6 +434,33 @@ class ActiveMemoryClient:
         space_path: str | None = None,
     ) -> SearchResult:
         embedding = self.embedding_provider.embed([query])[0]
+        return self._search_with_embedding(
+            query,
+            embedding,
+            tenant_id=tenant_id,
+            namespace=namespace,
+            scope=scope,
+            memory_type=memory_type,
+            limit=limit,
+            metadata_filter=metadata_filter,
+            tags=tags,
+            space_path=space_path,
+        )
+
+    def _search_with_embedding(
+        self,
+        query: str,
+        embedding: list[float],
+        *,
+        tenant_id: str,
+        namespace: str,
+        scope: str,
+        memory_type: str | None,
+        limit: int,
+        metadata_filter: dict[str, Any] | None,
+        tags: list[str] | None,
+        space_path: str | None,
+    ) -> SearchResult:
         vec = vector_literal(embedding)
         vector_type = self.config.vector_sql_type()
         tag_values = normalize_tags(tags)
@@ -333,20 +499,30 @@ class ActiveMemoryClient:
 
         ids = [row[0] for row in rows]
         if ids:
-            self._reinforce(ids)
+            reinforcement = self._reinforce(ids)
+            if reinforcement["failed"]:
+                logger.warning("Failed to reinforce memories: %s", reinforcement["failed"])
         return SearchResult([self._record_from_row(row) for row in rows])
 
-    def _reinforce(self, ids: list[Any]) -> None:
+    def _reinforce(self, ids: list[Any]) -> dict[str, list[str]]:
+        requested = [_uuid_text(memory_id) for memory_id in ids]
         try:
             with self.pool.connection() as conn:
                 try:
                     with conn.cursor() as cur:
                         cur.execute("SELECT active_memory.reinforce_memories(%s::uuid[])", (ids,))
+                        row = cur.fetchone()
                     conn.commit()
+                    updated = int(row[0]) if row else 0
+                    if updated == len(ids):
+                        return {"succeeded": requested, "failed": []}
+                    return {"succeeded": requested[:updated], "failed": requested[updated:]}
                 except Exception:
                     conn.rollback()
+                    logger.warning("Memory reinforcement transaction failed", exc_info=True)
         except Exception:
-            return
+            logger.warning("Memory reinforcement connection failed", exc_info=True)
+        return {"succeeded": [], "failed": requested}
 
     def resolve_conflict(
         self,

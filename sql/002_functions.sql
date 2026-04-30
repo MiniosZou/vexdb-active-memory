@@ -11,8 +11,8 @@ RETURNS UUID AS $$
     SELECT (
         substr(v, 1, 8) || '-' ||
         substr(v, 9, 4) || '-' ||
-        substr(v, 13, 4) || '-' ||
-        substr(v, 17, 4) || '-' ||
+        '4' || substr(v, 14, 3) || '-' ||
+        '8' || substr(v, 18, 3) || '-' ||
         substr(v, 21, 12)
     )::uuid
     FROM (SELECT md5(random()::text || clock_timestamp()::text) AS v) s;
@@ -170,7 +170,6 @@ DECLARE
     v_version_id UUID;
     v_has_existing BOOLEAN := false;
     v_has_nearest BOOLEAN := false;
-    v_nearest_id UUID;
     v_new_metadata JSONB;
 BEGIN
     IF p_lock_key IS NOT NULL THEN
@@ -241,23 +240,11 @@ BEGIN
           AND status = 'active'
         ORDER BY embedding <=> p_embedding
         LIMIT 1
+        FOR UPDATE SKIP LOCKED
     LOOP
         v_has_nearest := true;
-        v_nearest_id := v_nearest.id;
         EXIT;
     END LOOP;
-
-    IF v_has_nearest THEN
-        FOR v_nearest IN
-            SELECT id, content, metadata, (embedding <=> p_embedding)::DOUBLE PRECISION AS distance
-            FROM active_memory.memories
-            WHERE id = v_nearest_id
-              AND status = 'active'
-            FOR UPDATE
-        LOOP
-            EXIT;
-        END LOOP;
-    END IF;
 
     IF v_has_nearest AND v_nearest.distance < p_dedup_distance THEN
         v_version_id := active_memory.random_uuid();

@@ -153,6 +153,9 @@ CREATE TABLE IF NOT EXISTS active_memory.conflict_queue (
     decided_at TIMESTAMPTZ
 );
 
+COMMENT ON COLUMN active_memory.conflict_queue.candidate_embedding IS
+    'Stored for database-native resolve_conflict update/append decisions; avoids recomputing candidate vectors outside the SQL transaction.';
+
 DO $$
 BEGIN
     IF NOT EXISTS (
