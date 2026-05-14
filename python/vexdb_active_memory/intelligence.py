@@ -49,10 +49,12 @@ def estimate_importance(text: str, metadata: dict[str, Any] | None = None) -> in
     source_trust = metadata.get("source_trust")
     confidence = metadata.get("confidence")
 
-    if any(term in lowered for term in HIGH_IMPORTANCE_TERMS):
-        score += 1
-    if any(term in lowered for term in LOW_IMPORTANCE_TERMS):
-        score -= 1
+    high_hits = sum(1 for term in HIGH_IMPORTANCE_TERMS if term in lowered)
+    low_hits = sum(1 for term in LOW_IMPORTANCE_TERMS if term in lowered)
+    if high_hits:
+        score += min(2, high_hits)
+    if low_hits:
+        score -= min(2, low_hits)
     if memory_type in {"policy", "preference", "requirement", "decision", "entity"}:
         score += 1
     if isinstance(source_trust, (int, float)):

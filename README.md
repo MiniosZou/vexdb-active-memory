@@ -11,7 +11,7 @@ VexDB Active Memory 把长期记忆从“应用层中间件”下沉到 VexDB �
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
 ![VexDB](https://img.shields.io/badge/VexDB-floatvector-green)
 ![MCP](https://img.shields.io/badge/MCP-stdio-purple)
-![Tests](https://img.shields.io/badge/tests-59%20passed-brightgreen)
+![Tests](https://img.shields.io/badge/tests-64%20passed-brightgreen)
 ![License](https://img.shields.io/badge/license-Proprietary-lightgrey)
 
 ## 为什么需要它
@@ -66,6 +66,14 @@ LLM、人工审核员或策略引擎只负责给出决策，最终数据修改�
 
 这对中文关键词、精确名称、ID、领域术语更友好。
 
+### Auto-Capture / Auto-Recall
+
+当前提供可嵌入 SDK/MCP 的自动记忆钩子：
+
+- `auto_capture`：从对话消息中识别“记住 / 偏好 / 决定 / 电话 / 截止”等触发内容，自动分类、提取标签并写入 VexDB。
+- `capture_cursors`：按 `tenant/namespace/scope/session_id` 记录已处理消息游标，避免重复消费。
+- `auto_recall`：在回复前执行混合检索，并返回安全的 `<relevant-memories>` prompt block。
+
 ### 安全与治理
 
 - Prompt 注入检测：写入前拦截常见“忽略之前指令 / 泄露 system prompt / bypass safety”等记忆投毒内容。
@@ -87,7 +95,7 @@ OpenAI-compatible 服务通过 `OPENAI_BASE_URL` + `OPENAI_API_KEY` 接入。
 
 ## MCP 工具
 
-内置 stdio MCP Server，当前暴露 11 个工具：
+内置 stdio MCP Server，当前暴露 13 个工具：
 
 - `vexdb_memory_status`
 - `vexdb_memory_add`
@@ -100,6 +108,8 @@ OpenAI-compatible 服务通过 `OPENAI_BASE_URL` + `OPENAI_API_KEY` 接入。
 - `vexdb_memory_apply_decay`
 - `vexdb_memory_graph`
 - `vexdb_memory_conflict_report`
+- `vexdb_memory_auto_capture`
+- `vexdb_memory_auto_recall`
 
 OpenClaw、Hermes、Codex 或其他 MCP 客户端都可以作为接入方。记忆能力归 VexDB，不绑定某个 Agent 框架。
 
@@ -291,12 +301,12 @@ OpenClaw 中工具名会带 server 前缀，例如：
 
 当前本地验证：
 
-- `python -m pytest tests`：`59 passed, 1 skipped`
-- `mcp-smoke`：通过，发现 11 个 MCP 工具
+- `python -m pytest tests`：`64 passed, 1 skipped`
+- `mcp-smoke`：通过，发现 13 个 MCP 工具
 - `smoke-test`：真实 VexDB 入库和检索通过
 - `conflict-decay-test`：真实 VexDB 冲突裁决 + 遗忘归档通过
 - `vexdb-memory search --hybrid`：真实 VexDB 混合检索通过
-- `hermes mcp test vexdb-active-memory`：连接成功，发现 11 个工具
+- `hermes mcp test vexdb-active-memory`：连接成功，发现 13 个工具
 - `openclaw mcp show`：stdio wrapper 配置正常
 
 详见 [docs/verification.md](docs/verification.md)。
@@ -328,8 +338,8 @@ OpenClaw 中工具名会带 server 前缀，例如：
 
 | 版本 | 目标 |
 | --- | --- |
-| v0.1 | SQL 内核、Python SDK、MCP Server、REST 薄适配、混合检索、安全 guard、OpenClaw/Hermes 接入 |
-| v0.2 | Auto-Capture / Auto-Recall hook、性能基线、容器化一键验收、冲突样本集 |
+| v0.1 | SQL 内核、Python SDK、MCP Server、REST 薄适配、混合检索、安全 guard、Auto-Capture/Recall、OpenClaw/Hermes 接入 |
+| v0.2 | 中文 fulltext/BM25 质量增强、性能基线、容器化一键验收、冲突样本集 |
 | v0.3 | 可插拔 LLM 裁决 provider、人工复核流、质量报表 |
 | v1.0 | 生产 SLO、监控审计、发布包、升级/回滚文档 |
 

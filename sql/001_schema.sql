@@ -273,3 +273,14 @@ CREATE TABLE IF NOT EXISTS active_memory.policies (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE TABLE IF NOT EXISTS active_memory.capture_cursors (
+    tenant_id TEXT NOT NULL DEFAULT 'default',
+    namespace TEXT NOT NULL DEFAULT 'default',
+    scope TEXT NOT NULL DEFAULT 'global',
+    session_id TEXT NOT NULL,
+    last_message_id TEXT,
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (tenant_id, namespace, scope, session_id)
+);

@@ -61,7 +61,7 @@ Additional OpenClaw/VexDB verification on 2026-04-28:
   by `active_memory.link_related_memories(...)`.
 - OpenClaw stdio MCP conflict report returned pending/resolved decision counts
   through `vexdb_memory_conflict_report`.
-- Current unit/contract suite: `59 passed, 1 skipped`.
+- Current unit/contract suite: `64 passed, 1 skipped`.
 
 Sanitized evidence snippets from the verified local machine:
 
@@ -72,7 +72,8 @@ tools: vexdb_memory_status, vexdb_memory_add, vexdb_memory_batch_add,
   vexdb_memory_search, vexdb_memory_hybrid_search, vexdb_memory_batch_search,
   vexdb_memory_resolve_conflict, vexdb_memory_list_conflicts,
   vexdb_memory_apply_decay,
-  vexdb_memory_graph, vexdb_memory_conflict_report
+  vexdb_memory_graph, vexdb_memory_conflict_report,
+  vexdb_memory_auto_capture, vexdb_memory_auto_recall
 openclaw_tool_names:
   vexdb-active-memory__vexdb_memory_status
   vexdb-active-memory__vexdb_memory_add
@@ -85,10 +86,12 @@ openclaw_tool_names:
   vexdb-active-memory__vexdb_memory_apply_decay
   vexdb-active-memory__vexdb_memory_graph
   vexdb-active-memory__vexdb_memory_conflict_report
+  vexdb-active-memory__vexdb_memory_auto_capture
+  vexdb-active-memory__vexdb_memory_auto_recall
 
 hermes mcp test vexdb-active-memory
 connected: true
-tools discovered: 11
+tools discovered: 13
 
 vexdb_memory_status
 status: ready
@@ -120,7 +123,7 @@ Additional review-fix verification on 2026-04-30:
   WSL and returned `database.ok: true`.
 - `hermes mcp test vexdb-active-memory` connected successfully and discovered
   10 tools.
-- Unit and contract tests returned `59 passed, 1 skipped`.
+- Unit and contract tests returned `64 passed, 1 skipped`.
 
 Additional comparison-driven verification on 2026-05-14:
 
@@ -134,9 +137,25 @@ Additional comparison-driven verification on 2026-05-14:
   combined keyword/vector path.
 - The prompt guard rejected a memory containing a direct system-prompt
   exfiltration instruction before database write.
-- `hermes mcp test vexdb-active-memory` connected and discovered 11 tools.
+- `hermes mcp test vexdb-active-memory` connected and discovered 13 tools.
 - `openclaw mcp show` still points at the checked-in stdio wrapper.
-- Unit and contract tests returned `59 passed, 1 skipped`.
+- Unit and contract tests returned `64 passed, 1 skipped`.
+
+Additional auto-memory verification on 2026-05-14:
+
+- `active_memory.capture_cursors` schema and index applied successfully on the
+  local VexDB container.
+- `vexdb_memory_auto_capture` is exposed by MCP and captures triggered
+  conversation messages with automatic category detection.
+- `vexdb_memory_auto_recall` is exposed by MCP and returns a
+  `<relevant-memories>` prompt block.
+- SDK `auto_capture(...)` captured a preference and a decision against local
+  VexDB, and SDK `auto_recall(...)` returned both memories.
+- The capture cursor was verified by running the same session twice: the first
+  run captured two memories and the second captured zero.
+- `hermes mcp test vexdb-active-memory` connected and discovered 13 tools.
+- `openclaw mcp show` still points at the checked-in stdio wrapper.
+- Unit and contract tests returned `64 passed, 1 skipped`.
 
 These snippets intentionally omit DSNs, passwords, API keys, and full record
 payloads. Re-run the commands in `docs/test-specs.zh.md` on each new machine.

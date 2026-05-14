@@ -348,6 +348,53 @@ def tool_conflict_report(
     return _get_client().conflict_report(tenant_id=tenant_id, namespace=namespace, since=since)
 
 
+def tool_auto_capture(
+    messages: list[Any],
+    session_id: str,
+    tenant_id: str = "default",
+    namespace: str = "default",
+    scope: str = "global",
+    actor: str | None = None,
+    space_path: str = "auto_capture",
+    use_cursor: bool = True,
+) -> dict[str, Any]:
+    clean_messages = [message for message in messages if isinstance(message, dict)]
+    if len(clean_messages) != len(messages):
+        raise ValueError("Invalid value for messages")
+    return _get_client().auto_capture(
+        clean_messages,
+        session_id=session_id,
+        tenant_id=tenant_id,
+        namespace=namespace,
+        scope=scope,
+        actor=actor,
+        space_path=space_path,
+        use_cursor=use_cursor,
+    )
+
+
+def tool_auto_recall(
+    query: str,
+    tenant_id: str = "default",
+    namespace: str = "default",
+    scope: str = "global",
+    memory_type: str | None = None,
+    limit: int = 5,
+    tags: list[str] | None = None,
+    space_path: str | None = None,
+) -> dict[str, Any]:
+    return _get_client().auto_recall(
+        query,
+        tenant_id=tenant_id,
+        namespace=namespace,
+        scope=scope,
+        memory_type=memory_type,
+        limit=limit,
+        tags=tags,
+        space_path=space_path,
+    )
+
+
 TOOLS: dict[str, dict[str, Any]] = {
     "vexdb_memory_status": {
         "description": (
@@ -615,6 +662,57 @@ TOOLS: dict[str, dict[str, Any]] = {
             "additionalProperties": False,
         },
         "handler": tool_conflict_report,
+    },
+    "vexdb_memory_auto_capture": {
+        "description": (
+            "Automatically extract durable memories from conversation messages using capture triggers, "
+            "category detection, tags, semantic upsert, and a per-session cursor."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "messages": {
+                    "type": "array",
+                    "items": {"type": "object"},
+                    "description": "Conversation messages with id/message_id and content/text fields.",
+                },
+                "session_id": {"type": "string", "description": "Conversation or agent session id for cursor tracking."},
+                "tenant_id": {"type": "string", "description": "Tenant partition. Defaults to default."},
+                "namespace": {"type": "string", "description": "Application or agent namespace."},
+                "scope": {"type": "string", "description": "Memory scope to write."},
+                "actor": {"type": "string", "description": "Agent or user writing captured memories."},
+                "space_path": {"type": "string", "description": "Hierarchical memory space for captured memories."},
+                "use_cursor": {"type": "boolean", "description": "Skip messages already processed for this session."},
+            },
+            "required": ["messages", "session_id"],
+            "additionalProperties": False,
+        },
+        "handler": tool_auto_capture,
+    },
+    "vexdb_memory_auto_recall": {
+        "description": (
+            "Retrieve relevant memories and format a safe <relevant-memories> block for prompt injection before response generation."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Current user message or task context."},
+                "tenant_id": {"type": "string", "description": "Tenant partition. Defaults to default."},
+                "namespace": {"type": "string", "description": "Application or agent namespace."},
+                "scope": {"type": "string", "description": "Memory scope to search."},
+                "memory_type": {"type": "string", "description": "Optional memory category filter."},
+                "limit": {"type": "integer", "description": "Maximum number of memories to return, capped at 100."},
+                "tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Require memories to contain these tags.",
+                },
+                "space_path": {"type": "string", "description": "Optional hierarchical memory space path filter."},
+            },
+            "required": ["query"],
+            "additionalProperties": False,
+        },
+        "handler": tool_auto_recall,
     },
 }
 

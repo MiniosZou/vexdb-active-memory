@@ -255,3 +255,42 @@ Optional:
 - `tenant_id`
 - `namespace`
 - `since`
+
+### vexdb_memory_auto_capture
+
+Extracts durable memories from conversation messages. It uses capture triggers,
+automatic memory type detection, tag extraction, semantic UPSERT, and a
+per-session cursor so already processed messages are skipped.
+
+Required:
+
+- `messages`
+- `session_id`
+
+Optional:
+
+- `tenant_id`
+- `namespace`
+- `scope`
+- `actor`
+- `space_path`
+- `use_cursor`
+
+### vexdb_memory_auto_recall
+
+Runs hybrid retrieval and returns a safe `<relevant-memories>` block that can be
+injected before prompt generation.
+
+Required:
+
+- `query`
+
+Optional:
+
+- `tenant_id`
+- `namespace`
+- `scope`
+- `memory_type`
+- `limit`
+- `tags`
+- `space_path`

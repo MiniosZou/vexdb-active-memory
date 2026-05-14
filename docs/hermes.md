@@ -74,6 +74,8 @@ Expected result:
 - `vexdb_memory_apply_decay`
 - `vexdb_memory_graph`
 - `vexdb_memory_conflict_report`
+- `vexdb_memory_auto_capture`
+- `vexdb_memory_auto_recall`
 
 ## 3. Tool Calling
 

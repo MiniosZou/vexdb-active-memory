@@ -7,12 +7,14 @@ import uuid
 from typing import Any
 
 from .config import ActiveMemoryConfig
+from .capture import capture_candidates
 from .db import ConnectionPool, vector_literal
 from .embedding import EmbeddingProvider, provider_from_config
 from .intelligence import auto_conflict_decision, estimate_importance, normalize_tags
 from .models import MemoryRecord, SearchResult
 from .normalize import advisory_lock_key, canonicalize, content_hash
 from .security import detect_prompt_injection
+from .security import escape_memory_for_prompt
 
 logger = logging.getLogger(__name__)
 _TOKEN_RE = re.compile(r"[\w\u4e00-\u9fff]+", re.UNICODE)
@@ -509,6 +511,109 @@ class ActiveMemoryClient:
         ordered = sorted(merged.values(), key=lambda item: item[1], reverse=True)
         return SearchResult([record for record, _score in ordered[: max(1, min(limit, 100))]])
 
+    def auto_capture(
+        self,
+        messages: list[dict[str, Any]],
+        *,
+        session_id: str,
+        tenant_id: str = "default",
+        namespace: str = "default",
+        scope: str = "global",
+        actor: str | None = None,
+        space_path: str = "auto_capture",
+        use_cursor: bool = True,
+    ) -> dict[str, Any]:
+        after_message_id = self._get_capture_cursor(
+            tenant_id=tenant_id,
+            namespace=namespace,
+            scope=scope,
+            session_id=session_id,
+        ) if use_cursor else None
+        candidates = capture_candidates(messages, after_message_id=after_message_id)
+        results: list[dict[str, Any]] = []
+        for candidate in candidates:
+            results.append(
+                self.upsert(
+                    candidate.content,
+                    tenant_id=tenant_id,
+                    namespace=namespace,
+                    scope=scope,
+                    memory_type=candidate.memory_type,
+                    metadata={
+                        "source": "auto_capture",
+                        "session_id": session_id,
+                        "message_id": candidate.message_id,
+                        "capture_reason": candidate.reason,
+                    },
+                    actor=actor,
+                    confidence=candidate.confidence,
+                    tags=candidate.tags,
+                    space_path=space_path,
+                    request_id=f"auto_capture:{session_id}:{candidate.message_id}" if candidate.message_id else None,
+                )
+            )
+        last_message_id = self._last_message_id(messages)
+        if use_cursor and last_message_id is not None:
+            self._set_capture_cursor(
+                tenant_id=tenant_id,
+                namespace=namespace,
+                scope=scope,
+                session_id=session_id,
+                last_message_id=last_message_id,
+                metadata={"captured_count": len(results)},
+            )
+        return {
+            "captured_count": len(results),
+            "last_message_id": last_message_id,
+            "candidates": [
+                {
+                    "content": candidate.content,
+                    "message_id": candidate.message_id,
+                    "memory_type": candidate.memory_type,
+                    "tags": candidate.tags,
+                    "confidence": candidate.confidence,
+                    "reason": candidate.reason,
+                }
+                for candidate in candidates
+            ],
+            "results": results,
+        }
+
+    def auto_recall(
+        self,
+        query: str,
+        *,
+        tenant_id: str = "default",
+        namespace: str = "default",
+        scope: str = "global",
+        memory_type: str | None = None,
+        limit: int = 5,
+        tags: list[str] | None = None,
+        space_path: str | None = None,
+    ) -> dict[str, Any]:
+        result = self.hybrid_search(
+            query,
+            tenant_id=tenant_id,
+            namespace=namespace,
+            scope=scope,
+            memory_type=memory_type,
+            limit=limit,
+            tags=tags,
+            space_path=space_path,
+        )
+        lines = ["<relevant-memories>"]
+        for memory in result.memories:
+            lines.append(
+                f"- [{memory.memory_type}] {escape_memory_for_prompt(memory.content)} "
+                f"(id={memory.id}, confidence={memory.confidence:.3f})"
+            )
+        lines.append("</relevant-memories>")
+        return {
+            "memories": [memory.__dict__ for memory in result.memories],
+            "prompt_block": "\n".join(lines),
+            "mcp_compatible": result.to_mcp_compatible(),
+        }
+
     def _keyword_search(
         self,
         query: str,
@@ -583,6 +688,73 @@ class ActiveMemoryClient:
                 logger.warning("Keyword search failed; falling back to vector results", exc_info=True)
                 return []
         return [self._record_from_row(row) for row in rows]
+
+    def _get_capture_cursor(
+        self,
+        *,
+        tenant_id: str,
+        namespace: str,
+        scope: str,
+        session_id: str,
+    ) -> str | None:
+        with self.pool.connection() as conn:
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT last_message_id
+                        FROM active_memory.capture_cursors
+                        WHERE tenant_id = %s AND namespace = %s AND scope = %s AND session_id = %s
+                        """,
+                        (tenant_id, namespace, scope, session_id),
+                    )
+                    row = cur.fetchone()
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                logger.warning("Capture cursor lookup failed; processing all messages", exc_info=True)
+                return None
+        return row[0] if row else None
+
+    def _set_capture_cursor(
+        self,
+        *,
+        tenant_id: str,
+        namespace: str,
+        scope: str,
+        session_id: str,
+        last_message_id: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        metadata_json = json.dumps(metadata or {}, ensure_ascii=False)
+        with self.pool.connection() as conn:
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        INSERT INTO active_memory.capture_cursors(
+                            tenant_id, namespace, scope, session_id, last_message_id, metadata
+                        ) VALUES (%s, %s, %s, %s, %s, %s::jsonb)
+                        ON CONFLICT (tenant_id, namespace, scope, session_id)
+                        DO UPDATE SET
+                            last_message_id = EXCLUDED.last_message_id,
+                            metadata = EXCLUDED.metadata,
+                            updated_at = now()
+                        """,
+                        (tenant_id, namespace, scope, session_id, last_message_id, metadata_json),
+                    )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                logger.warning("Capture cursor update failed", exc_info=True)
+
+    @staticmethod
+    def _last_message_id(messages: list[dict[str, Any]]) -> str | None:
+        for message in reversed(messages):
+            value = message.get("id") or message.get("message_id")
+            if value is not None:
+                return str(value)
+        return None
 
     def _search_with_embedding(
         self,

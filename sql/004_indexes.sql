@@ -41,6 +41,9 @@ ON active_memory.memory_events(memory_id, created_at);
 CREATE INDEX IF NOT EXISTS memory_versions_memory_idx
 ON active_memory.memory_versions(memory_id, created_at);
 
+CREATE INDEX IF NOT EXISTS capture_cursors_updated_idx
+ON active_memory.capture_cursors(updated_at);
+
 DO $$
 BEGIN
     BEGIN

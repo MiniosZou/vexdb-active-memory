@@ -75,6 +75,21 @@ class FakeClient:
             }
         ]
 
+    def auto_capture(self, messages, **kwargs):
+        return {
+            "captured_count": 1,
+            "last_message_id": "2",
+            "candidates": [{"content": messages[-1]["content"], "memory_type": "preference"}],
+            "results": [{"id": "00000000-0000-0000-0000-000000000031", "action": "inserted"}],
+        }
+
+    def auto_recall(self, query, **kwargs):
+        return {
+            "memories": [{"id": "00000000-0000-0000-0000-000000000032", "content": "remembered"}],
+            "prompt_block": "<relevant-memories>\n- [fact] remembered\n</relevant-memories>",
+            "mcp_compatible": {"documents": [["remembered"]]},
+        }
+
 
 class FakeMemory:
     def __init__(self, content):
@@ -123,6 +138,8 @@ def test_tools_list_exposes_strict_agent_friendly_schemas():
         "vexdb_memory_apply_decay",
         "vexdb_memory_graph",
         "vexdb_memory_conflict_report",
+        "vexdb_memory_auto_capture",
+        "vexdb_memory_auto_recall",
     }
     assert "remember" in tools["vexdb_memory_add"]["description"]
     assert "what is remembered" in tools["vexdb_memory_search"]["description"]
@@ -145,6 +162,8 @@ def test_tools_list_exposes_strict_agent_friendly_schemas():
     assert tools["vexdb_memory_search"]["inputSchema"]["properties"]["tags"]["items"]["type"] == "string"
     assert tools["vexdb_memory_hybrid_search"]["inputSchema"]["properties"]["vector_weight"]["type"] == "number"
     assert tools["vexdb_memory_batch_search"]["inputSchema"]["properties"]["queries"]["items"]["type"] == "string"
+    assert tools["vexdb_memory_auto_capture"]["inputSchema"]["required"] == ["messages", "session_id"]
+    assert tools["vexdb_memory_auto_recall"]["inputSchema"]["required"] == ["query"]
 
 
 def test_add_returns_conflict_metadata_for_resolution(monkeypatch):
@@ -262,6 +281,38 @@ def test_list_conflicts_tool(monkeypatch):
     assert payload["conflicts"][0]["status"] == "pending"
 
 
+def test_auto_capture_and_recall_tools(monkeypatch):
+    monkeypatch.setattr(mcp, "_client", FakeClient())
+    capture = mcp._handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "vexdb_memory_auto_capture",
+                "arguments": {
+                    "session_id": "s1",
+                    "messages": [
+                        {"id": "1", "content": "hello"},
+                        {"id": "2", "content": "Please remember user prefers quiet hotels."},
+                    ],
+                },
+            },
+        }
+    )
+    recall = mcp._handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {"name": "vexdb_memory_auto_recall", "arguments": {"query": "hotel preference"}},
+        }
+    )
+
+    assert json.loads(capture["result"]["content"][0]["text"])["captured_count"] == 1
+    assert "<relevant-memories>" in json.loads(recall["result"]["content"][0]["text"])["prompt_block"]
+
+
 def test_tool_call_rejects_unknown_arguments():
     response = mcp._handle_request(
         {
@@ -337,6 +388,7 @@ def test_tool_call_rejects_bad_argument_types_and_ranges():
         {"name": "vexdb_memory_batch_add", "arguments": {"items": []}},
         {"name": "vexdb_memory_batch_search", "arguments": {"queries": ["ok", ""]}},
         {"name": "vexdb_memory_list_conflicts", "arguments": {"status": "bad"}},
+        {"name": "vexdb_memory_auto_capture", "arguments": {"session_id": "s1", "messages": ["bad"]}},
     ]
 
     for params in cases:
