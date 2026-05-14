@@ -130,6 +130,7 @@ Optional:
 - `scope`
 - `memory_type`
 - `actor`
+- `atomic`
 
 ### vexdb_memory_search
 
@@ -149,6 +150,28 @@ Optional:
 - `metadata_filter`
 - `tags`
 - `space_path`
+
+### vexdb_memory_hybrid_search
+
+Searches active memories with vector similarity plus keyword/full-text recall.
+Use it when exact names, Chinese keywords, IDs, or domain terms must not be
+missed.
+
+Required:
+
+- `query`
+
+Optional:
+
+- `tenant_id`
+- `namespace`
+- `scope`
+- `memory_type`
+- `limit`
+- `metadata_filter`
+- `tags`
+- `space_path`
+- `vector_weight`
 
 ### vexdb_memory_batch_search
 

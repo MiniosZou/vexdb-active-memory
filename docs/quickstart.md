@@ -39,6 +39,24 @@ export VEXDB_MEMORY_EMBEDDING_PROVIDER=dashscope
 export DASHSCOPE_API_KEY='...'
 ```
 
+OpenAI-compatible embedding services such as SiliconFlow or ZhipuAI can be used
+through the same adapter:
+
+```bash
+export VEXDB_MEMORY_EMBEDDING_PROVIDER=siliconflow
+export VEXDB_MEMORY_EMBEDDING_MODEL='BAAI/bge-m3'
+export OPENAI_BASE_URL='https://api.siliconflow.cn/v1'
+export OPENAI_API_KEY='...'
+```
+
+Environment values support `${VAR}` substitution, so secrets can stay outside
+checked-in config files:
+
+```bash
+export VEXDB_APP_PASSWORD='change-me'
+export VEXDB_DSN='postgresql://vexdb:${VEXDB_APP_PASSWORD}@127.0.0.1:5432/vastbase'
+```
+
 ## 3. Apply SQL
 
 ```bash
@@ -95,6 +113,13 @@ try:
     )
     for memory in result.memories:
         print(memory.id, memory.distance, memory.content)
+
+    hybrid = client.hybrid_search(
+        "company-approved hotel preference",
+        namespace="oa",
+        scope="user:zouzh",
+    )
+    print("hybrid_count:", len(hybrid.memories))
 finally:
     client.close()
 PY
@@ -112,6 +137,7 @@ The MCP server exposes:
 - `vexdb_memory_add`
 - `vexdb_memory_batch_add`
 - `vexdb_memory_search`
+- `vexdb_memory_hybrid_search`
 - `vexdb_memory_batch_search`
 - `vexdb_memory_resolve_conflict`
 - `vexdb_memory_list_conflicts`

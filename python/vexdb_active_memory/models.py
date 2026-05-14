@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
+from .security import escape_memory_for_prompt
+
 
 @dataclass(frozen=True)
 class MemoryRecord:
@@ -31,6 +33,6 @@ class SearchResult:
         return {
             "ids": [[memory.id for memory in self.memories]],
             "distances": [[memory.distance for memory in self.memories]],
-            "documents": [[memory.content for memory in self.memories]],
+            "documents": [[escape_memory_for_prompt(memory.content) for memory in self.memories]],
             "metadatas": [[memory.metadata for memory in self.memories]],
         }

@@ -24,6 +24,17 @@ BEGIN
 END;
 $$;
 
+DO $$
+BEGIN
+    BEGIN
+        CREATE INDEX IF NOT EXISTS memories_content_fulltext_idx
+        ON active_memory.memories USING gin(to_tsvector('simple', content));
+    EXCEPTION WHEN OTHERS THEN
+        RAISE NOTICE 'Full-text index is not available on this VexDB edition; hybrid search falls back to exact keyword scans.';
+    END;
+END;
+$$;
+
 CREATE INDEX IF NOT EXISTS memory_events_memory_idx
 ON active_memory.memory_events(memory_id, created_at);
 

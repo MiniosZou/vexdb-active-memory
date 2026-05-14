@@ -61,7 +61,7 @@ Additional OpenClaw/VexDB verification on 2026-04-28:
   by `active_memory.link_related_memories(...)`.
 - OpenClaw stdio MCP conflict report returned pending/resolved decision counts
   through `vexdb_memory_conflict_report`.
-- Current unit/contract suite: `52 passed, 1 skipped`.
+- Current unit/contract suite: `59 passed, 1 skipped`.
 
 Sanitized evidence snippets from the verified local machine:
 
@@ -69,7 +69,7 @@ Sanitized evidence snippets from the verified local machine:
 vexdb-memory mcp-smoke
 ok: true
 tools: vexdb_memory_status, vexdb_memory_add, vexdb_memory_batch_add,
-  vexdb_memory_search, vexdb_memory_batch_search,
+  vexdb_memory_search, vexdb_memory_hybrid_search, vexdb_memory_batch_search,
   vexdb_memory_resolve_conflict, vexdb_memory_list_conflicts,
   vexdb_memory_apply_decay,
   vexdb_memory_graph, vexdb_memory_conflict_report
@@ -78,6 +78,7 @@ openclaw_tool_names:
   vexdb-active-memory__vexdb_memory_add
   vexdb-active-memory__vexdb_memory_batch_add
   vexdb-active-memory__vexdb_memory_search
+  vexdb-active-memory__vexdb_memory_hybrid_search
   vexdb-active-memory__vexdb_memory_batch_search
   vexdb-active-memory__vexdb_memory_resolve_conflict
   vexdb-active-memory__vexdb_memory_list_conflicts
@@ -87,7 +88,7 @@ openclaw_tool_names:
 
 hermes mcp test vexdb-active-memory
 connected: true
-tools discovered: 10
+tools discovered: 11
 
 vexdb_memory_status
 status: ready
@@ -119,7 +120,23 @@ Additional review-fix verification on 2026-04-30:
   WSL and returned `database.ok: true`.
 - `hermes mcp test vexdb-active-memory` connected successfully and discovered
   10 tools.
-- Unit and contract tests returned `52 passed, 1 skipped`.
+- Unit and contract tests returned `59 passed, 1 skipped`.
+
+Additional comparison-driven verification on 2026-05-14:
+
+- `vexdb_memory_hybrid_search` is exposed by MCP and OpenClaw-prefixed tool
+  discovery.
+- `sql/004_indexes.sql` applied the full-text index block successfully on the
+  local VexDB container.
+- `vexdb-memory smoke-test` returned `ok: true`.
+- `vexdb-memory conflict-decay-test` returned `ok: true`.
+- `vexdb-memory search --hybrid` returned the smoke-test memory through the
+  combined keyword/vector path.
+- The prompt guard rejected a memory containing a direct system-prompt
+  exfiltration instruction before database write.
+- `hermes mcp test vexdb-active-memory` connected and discovered 11 tools.
+- `openclaw mcp show` still points at the checked-in stdio wrapper.
+- Unit and contract tests returned `59 passed, 1 skipped`.
 
 These snippets intentionally omit DSNs, passwords, API keys, and full record
 payloads. Re-run the commands in `docs/test-specs.zh.md` on each new machine.

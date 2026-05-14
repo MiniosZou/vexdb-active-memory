@@ -183,6 +183,54 @@ def tool_search(
     }
 
 
+def tool_hybrid_search(
+    query: str,
+    tenant_id: str = "default",
+    namespace: str = "default",
+    scope: str = "global",
+    memory_type: str | None = None,
+    limit: int = 5,
+    metadata_filter: dict[str, Any] | None = None,
+    tags: list[str] | None = None,
+    space_path: str | None = None,
+    vector_weight: float = 0.7,
+) -> dict[str, Any]:
+    result = _get_client().hybrid_search(
+        query,
+        tenant_id=tenant_id,
+        namespace=namespace,
+        scope=scope,
+        memory_type=memory_type,
+        limit=limit,
+        metadata_filter=metadata_filter,
+        tags=tags,
+        space_path=space_path,
+        vector_weight=vector_weight,
+    )
+    return {
+        "memories": [
+            {
+                "id": item.id,
+                "content": item.content,
+                "metadata": item.metadata,
+                "tags": item.tags,
+                "space_path": item.space_path,
+                "distance": item.distance,
+                "tenant_id": item.tenant_id,
+                "namespace": item.namespace,
+                "scope": item.scope,
+                "memory_type": item.memory_type,
+                "importance": item.importance,
+                "confidence": item.confidence,
+                "access_count": item.access_count,
+                "updated_at": item.updated_at.isoformat() if item.updated_at else None,
+            }
+            for item in result.memories
+        ],
+        "mcp_compatible": result.to_mcp_compatible(),
+    }
+
+
 def tool_batch_search(
     queries: list[Any],
     tenant_id: str = "default",
@@ -325,7 +373,10 @@ TOOLS: dict[str, dict[str, Any]] = {
                 "tenant_id": {"type": "string", "description": "Tenant partition. Defaults to default."},
                 "namespace": {"type": "string", "description": "Application or agent namespace."},
                 "scope": {"type": "string", "description": "Memory scope, such as global, user id, or session id."},
-                "memory_type": {"type": "string", "description": "Memory category such as fact, preference, task, or note."},
+                "memory_type": {
+                    "type": "string",
+                    "description": "Memory category such as fact, preference, task, note, decision, or entity.",
+                },
                 "metadata": {"type": "object", "description": "Small JSON metadata object for filtering and provenance."},
                 "tags": {
                     "type": "array",
@@ -365,6 +416,7 @@ TOOLS: dict[str, dict[str, Any]] = {
                 "scope": {"type": "string", "description": "Memory scope, such as global, user id, or session id."},
                 "memory_type": {"type": "string", "description": "Default memory type for string items."},
                 "actor": {"type": "string", "description": "Agent or user writing the memories."},
+                "atomic": {"type": "boolean", "description": "When true, all batch writes commit or roll back together."},
             },
             "required": ["items"],
             "additionalProperties": False,
@@ -397,6 +449,37 @@ TOOLS: dict[str, dict[str, Any]] = {
             "additionalProperties": False,
         },
         "handler": tool_search,
+    },
+    "vexdb_memory_hybrid_search": {
+        "description": (
+            "Search memories with vector similarity plus keyword/full-text recall. "
+            "Use this when exact names, Chinese keywords, IDs, or domain terms must not be missed."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Natural-language or keyword retrieval query."},
+                "tenant_id": {"type": "string", "description": "Tenant partition. Defaults to default."},
+                "namespace": {"type": "string", "description": "Application or agent namespace."},
+                "scope": {"type": "string", "description": "Memory scope to search."},
+                "memory_type": {"type": "string", "description": "Optional memory category filter."},
+                "limit": {"type": "integer", "description": "Maximum number of memories to return, capped at 100."},
+                "metadata_filter": {"type": "object", "description": "JSON metadata containment filter."},
+                "tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Require memories to contain these tags.",
+                },
+                "space_path": {"type": "string", "description": "Optional hierarchical memory space path filter."},
+                "vector_weight": {
+                    "type": "number",
+                    "description": "Weight for vector ranking from 0.0 to 1.0. Keyword weight is the remainder.",
+                },
+            },
+            "required": ["query"],
+            "additionalProperties": False,
+        },
+        "handler": tool_hybrid_search,
     },
     "vexdb_memory_batch_search": {
         "description": (
@@ -560,6 +643,8 @@ def _coerce_args(args: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any]
                 raise ValueError(f"Invalid value for {key}")
             elif declared == "array" and not isinstance(value, list):
                 raise ValueError(f"Invalid value for {key}")
+            elif declared == "boolean" and not isinstance(value, bool):
+                raise ValueError(f"Invalid value for {key}")
             if declared == "integer" and not isinstance(value, int):
                 clean[key] = int(value)
             elif declared == "number" and not isinstance(value, (int, float)):
@@ -572,6 +657,8 @@ def _coerce_args(args: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any]
         raise ValueError("Invalid value for importance")
     if "confidence" in clean and not 0 <= clean["confidence"] <= 1:
         raise ValueError("Invalid value for confidence")
+    if "vector_weight" in clean and not 0 <= clean["vector_weight"] <= 1:
+        raise ValueError("Invalid value for vector_weight")
     return clean
 
 

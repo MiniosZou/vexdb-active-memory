@@ -53,7 +53,7 @@ def estimate_importance(text: str, metadata: dict[str, Any] | None = None) -> in
         score += 1
     if any(term in lowered for term in LOW_IMPORTANCE_TERMS):
         score -= 1
-    if memory_type in {"policy", "preference", "requirement"}:
+    if memory_type in {"policy", "preference", "requirement", "decision", "entity"}:
         score += 1
     if isinstance(source_trust, (int, float)):
         if source_trust >= 0.8:

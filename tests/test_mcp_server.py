@@ -39,6 +39,9 @@ class FakeClient:
     def batch_search(self, queries, **kwargs):
         return [FakeSearchResult(query) for query in queries]
 
+    def hybrid_search(self, query, **kwargs):
+        return FakeSearchResult(f"hybrid {query}")
+
     def memory_graph(self, memory_id, **kwargs):
         return [
             {
@@ -81,6 +84,14 @@ class FakeMemory:
         self.tags = []
         self.space_path = "global"
         self.distance = 0.1
+        self.tenant_id = "default"
+        self.namespace = "default"
+        self.scope = "global"
+        self.memory_type = "fact"
+        self.importance = 3
+        self.confidence = 1.0
+        self.access_count = 0
+        self.updated_at = None
 
 
 class FakeSearchResult:
@@ -105,6 +116,7 @@ def test_tools_list_exposes_strict_agent_friendly_schemas():
         "vexdb_memory_add",
         "vexdb_memory_batch_add",
         "vexdb_memory_search",
+        "vexdb_memory_hybrid_search",
         "vexdb_memory_batch_search",
         "vexdb_memory_resolve_conflict",
         "vexdb_memory_list_conflicts",
@@ -123,6 +135,7 @@ def test_tools_list_exposes_strict_agent_friendly_schemas():
     ]
     assert tools["vexdb_memory_apply_decay"]["inputSchema"]["properties"]["min_access_count"]["minimum"] == 0
     assert tools["vexdb_memory_batch_add"]["inputSchema"]["required"] == ["items"]
+    assert tools["vexdb_memory_batch_add"]["inputSchema"]["properties"]["atomic"]["type"] == "boolean"
     assert tools["vexdb_memory_batch_search"]["inputSchema"]["required"] == ["queries"]
     assert tools["vexdb_memory_graph"]["inputSchema"]["required"] == ["memory_id"]
     assert tools["vexdb_memory_list_conflicts"]["inputSchema"]["properties"]["status"]["enum"] == [
@@ -130,6 +143,7 @@ def test_tools_list_exposes_strict_agent_friendly_schemas():
         "resolved",
     ]
     assert tools["vexdb_memory_search"]["inputSchema"]["properties"]["tags"]["items"]["type"] == "string"
+    assert tools["vexdb_memory_hybrid_search"]["inputSchema"]["properties"]["vector_weight"]["type"] == "number"
     assert tools["vexdb_memory_batch_search"]["inputSchema"]["properties"]["queries"]["items"]["type"] == "string"
 
 
@@ -185,6 +199,24 @@ def test_batch_search_returns_results_per_query(monkeypatch):
 
     assert [item["query"] for item in payload["results"]] == ["alpha", "beta"]
     assert payload["results"][0]["memories"][0]["content"] == "result for alpha"
+
+
+def test_hybrid_search_tool_returns_results(monkeypatch):
+    monkeypatch.setattr(mcp, "_client", FakeClient())
+    response = mcp._handle_request(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "vexdb_memory_hybrid_search",
+                "arguments": {"query": "alpha", "vector_weight": 0.5},
+            },
+        }
+    )
+    payload = json.loads(response["result"]["content"][0]["text"])
+
+    assert payload["memories"][0]["content"] == "result for hybrid alpha"
 
 
 def test_memory_graph_and_conflict_report_tools(monkeypatch):

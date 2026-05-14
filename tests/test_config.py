@@ -1,4 +1,4 @@
-from vexdb_active_memory.config import ActiveMemoryConfig
+from vexdb_active_memory.config import ActiveMemoryConfig, expand_env_vars
 
 
 def test_from_env_rejects_dashscope_without_api_key(monkeypatch):
@@ -41,3 +41,23 @@ def test_vector_sql_type_allows_pgvector(monkeypatch):
     config = ActiveMemoryConfig.from_env()
 
     assert config.vector_sql_type() == "vector"
+
+
+def test_env_var_expansion_supports_secret_indirection(monkeypatch):
+    monkeypatch.setenv("VEXDB_PASSWORD", "secret")
+
+    assert expand_env_vars("postgresql://vexdb:${VEXDB_PASSWORD}@localhost/db") == (
+        "postgresql://vexdb:secret@localhost/db"
+    )
+
+
+def test_openai_compatible_provider_config(monkeypatch):
+    monkeypatch.setenv("VEXDB_MEMORY_EMBEDDING_PROVIDER", "siliconflow")
+    monkeypatch.setenv("VEXDB_MEMORY_EMBEDDING_MODEL", "BAAI/bge-m3")
+    monkeypatch.setenv("OPENAI_API_KEY", "key")
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://api.siliconflow.cn/v1")
+
+    config = ActiveMemoryConfig.from_env()
+
+    assert config.embedding_provider == "siliconflow"
+    assert config.openai_base_url == "https://api.siliconflow.cn/v1"

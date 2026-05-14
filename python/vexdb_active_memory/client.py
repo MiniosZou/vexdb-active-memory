@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import uuid
 from typing import Any
 
@@ -11,8 +12,10 @@ from .embedding import EmbeddingProvider, provider_from_config
 from .intelligence import auto_conflict_decision, estimate_importance, normalize_tags
 from .models import MemoryRecord, SearchResult
 from .normalize import advisory_lock_key, canonicalize, content_hash
+from .security import detect_prompt_injection
 
 logger = logging.getLogger(__name__)
+_TOKEN_RE = re.compile(r"[\w\u4e00-\u9fff]+", re.UNICODE)
 
 
 def _uuid_text(value: Any) -> str:
@@ -358,6 +361,18 @@ class ActiveMemoryClient:
         request_id: str | None = None,
     ) -> dict[str, Any]:
         metadata = metadata or {}
+        findings = detect_prompt_injection(text)
+        if findings and self.config.prompt_guard.lower() == "block":
+            reasons = sorted({finding.reason for finding in findings})
+            raise ValueError(f"Memory rejected by prompt guard: {', '.join(reasons)}")
+        if findings and self.config.prompt_guard.lower() == "warn":
+            metadata = {
+                **metadata,
+                "prompt_guard": {
+                    "status": "warning",
+                    "reasons": sorted({finding.reason for finding in findings}),
+                },
+            }
         tag_values = normalize_tags(tags)
         scoring_metadata = {**metadata, "memory_type": memory_type, "confidence": confidence}
         score = estimate_importance(text, scoring_metadata) if importance is None else importance
@@ -446,6 +461,128 @@ class ActiveMemoryClient:
             tags=tags,
             space_path=space_path,
         )
+
+    def hybrid_search(
+        self,
+        query: str,
+        *,
+        tenant_id: str = "default",
+        namespace: str = "default",
+        scope: str = "global",
+        memory_type: str | None = None,
+        limit: int = 5,
+        metadata_filter: dict[str, Any] | None = None,
+        tags: list[str] | None = None,
+        space_path: str | None = None,
+        vector_weight: float = 0.7,
+    ) -> SearchResult:
+        candidate_limit = max(limit * 4, 20)
+        vector_result = self.search(
+            query,
+            tenant_id=tenant_id,
+            namespace=namespace,
+            scope=scope,
+            memory_type=memory_type,
+            limit=candidate_limit,
+            metadata_filter=metadata_filter,
+            tags=tags,
+            space_path=space_path,
+        )
+        keyword_records = self._keyword_search(
+            query,
+            tenant_id=tenant_id,
+            namespace=namespace,
+            scope=scope,
+            memory_type=memory_type,
+            limit=candidate_limit,
+            metadata_filter=metadata_filter,
+            tags=tags,
+            space_path=space_path,
+        )
+        merged: dict[str, tuple[MemoryRecord, float]] = {}
+        vector_weight = max(0.0, min(1.0, vector_weight))
+        keyword_weight = 1.0 - vector_weight
+        for rank, record in enumerate(vector_result.memories, start=1):
+            merged[record.id] = (record, merged.get(record.id, (record, 0.0))[1] + vector_weight / (60 + rank))
+        for rank, record in enumerate(keyword_records, start=1):
+            merged[record.id] = (record, merged.get(record.id, (record, 0.0))[1] + keyword_weight / (60 + rank))
+        ordered = sorted(merged.values(), key=lambda item: item[1], reverse=True)
+        return SearchResult([record for record, _score in ordered[: max(1, min(limit, 100))]])
+
+    def _keyword_search(
+        self,
+        query: str,
+        *,
+        tenant_id: str,
+        namespace: str,
+        scope: str,
+        memory_type: str | None,
+        limit: int,
+        metadata_filter: dict[str, Any] | None,
+        tags: list[str] | None,
+        space_path: str | None,
+    ) -> list[MemoryRecord]:
+        tokens = [token.lower() for token in _TOKEN_RE.findall(query) if len(token.strip()) > 1]
+        if not tokens:
+            return []
+        metadata_json = json.dumps(metadata_filter or {}, ensure_ascii=False)
+        tags_json = json.dumps(normalize_tags(tags), ensure_ascii=False)
+        like_pattern = "%" + "%".join(tokens[:6]) + "%"
+        with self.pool.connection() as conn:
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT id, content, metadata, tags, space_path,
+                               1.0 - LEAST(1.0, ts_rank_cd(to_tsvector('simple', content), plainto_tsquery('simple', %s))) AS distance,
+                               tenant_id, namespace, scope, memory_type, importance,
+                               confidence, access_count, updated_at
+                        FROM active_memory.memories
+                        WHERE tenant_id = %s
+                          AND namespace = %s
+                          AND scope = %s
+                          AND status = 'active'
+                          AND (%s IS NULL OR memory_type = %s)
+                          AND (%s::jsonb = '{}'::jsonb OR metadata @> %s::jsonb)
+                          AND (%s::jsonb = '[]'::jsonb OR tags @> %s::jsonb)
+                          AND (%s IS NULL OR %s = '' OR space_path = %s)
+                          AND (valid_from IS NULL OR valid_from <= now())
+                          AND (valid_until IS NULL OR valid_until > now())
+                          AND (
+                              to_tsvector('simple', content) @@ plainto_tsquery('simple', %s)
+                              OR lower(content) LIKE %s
+                          )
+                        ORDER BY ts_rank_cd(to_tsvector('simple', content), plainto_tsquery('simple', %s)) DESC,
+                                 updated_at DESC
+                        LIMIT %s
+                        """,
+                        (
+                            query,
+                            tenant_id,
+                            namespace,
+                            scope,
+                            memory_type,
+                            memory_type,
+                            metadata_json,
+                            metadata_json,
+                            tags_json,
+                            tags_json,
+                            space_path,
+                            space_path,
+                            space_path,
+                            query,
+                            like_pattern,
+                            query,
+                            max(1, min(limit, 100)),
+                        ),
+                    )
+                    rows = cur.fetchall()
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                logger.warning("Keyword search failed; falling back to vector results", exc_info=True)
+                return []
+        return [self._record_from_row(row) for row in rows]
 
     def _search_with_embedding(
         self,

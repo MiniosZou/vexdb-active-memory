@@ -94,6 +94,68 @@ class DashScopeEmbeddingProvider(EmbeddingProvider):
         return [item["embedding"] for item in embeddings]
 
 
+class OpenAICompatibleEmbeddingProvider(EmbeddingProvider):
+    def __init__(
+        self,
+        api_key: str,
+        model: str,
+        dimensions: int = 1024,
+        *,
+        base_url: str = "https://api.openai.com/v1",
+        max_retries: int = 2,
+        retry_backoff: float = 0.5,
+    ):
+        if not api_key:
+            raise ValueError("OPENAI_API_KEY is required for OpenAI-compatible embeddings")
+        self.api_key = api_key
+        self.model = model
+        self.dimensions = dimensions
+        self.base_url = base_url.rstrip("/")
+        self.max_retries = max(0, max_retries)
+        self.retry_backoff = max(0.0, retry_backoff)
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        try:
+            import httpx
+        except ImportError as exc:
+            raise RuntimeError("httpx is required for OpenAI-compatible embeddings") from exc
+
+        response = None
+        last_error: Exception | None = None
+        for attempt in range(self.max_retries + 1):
+            try:
+                response = httpx.post(
+                    f"{self.base_url}/embeddings",
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": self.model,
+                        "input": [text[:6000] if text else " " for text in texts],
+                        "dimensions": self.dimensions,
+                    },
+                    timeout=60,
+                )
+                if response.status_code < 500:
+                    break
+                response.raise_for_status()
+            except (httpx.TimeoutException, httpx.TransportError, httpx.HTTPStatusError) as exc:
+                last_error = exc
+                if attempt >= self.max_retries:
+                    raise
+                time.sleep(self.retry_backoff * (2**attempt))
+        if response is None:
+            raise RuntimeError("OpenAI-compatible embedding request failed") from last_error
+        response.raise_for_status()
+        payload = response.json()
+        data = payload.get("data")
+        if not isinstance(data, list):
+            raise RuntimeError(f"Unexpected OpenAI-compatible embedding response: {payload}")
+        ordered = sorted(data, key=lambda item: item.get("index", 0))
+        return [item["embedding"] for item in ordered]
+
+
 def provider_from_config(config: ActiveMemoryConfig) -> EmbeddingProvider:
     provider = config.embedding_provider.lower()
     if provider == "mock":
@@ -103,5 +165,12 @@ def provider_from_config(config: ActiveMemoryConfig) -> EmbeddingProvider:
             api_key=config.dashscope_api_key,
             model=config.embedding_model,
             dimensions=config.embedding_dimensions,
+        )
+    if provider in {"openai", "openai-compatible", "siliconflow", "zhipuai"}:
+        return OpenAICompatibleEmbeddingProvider(
+            api_key=config.openai_api_key,
+            model=config.embedding_model,
+            dimensions=config.embedding_dimensions,
+            base_url=config.openai_base_url,
         )
     raise ValueError(f"Unsupported embedding provider: {config.embedding_provider}")

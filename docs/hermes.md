@@ -67,6 +67,7 @@ Expected result:
 - `vexdb_memory_add`
 - `vexdb_memory_batch_add`
 - `vexdb_memory_search`
+- `vexdb_memory_hybrid_search`
 - `vexdb_memory_batch_search`
 - `vexdb_memory_resolve_conflict`
 - `vexdb_memory_list_conflicts`

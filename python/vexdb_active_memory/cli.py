@@ -416,6 +416,138 @@ def cmd_conflict_decay_test(args: argparse.Namespace) -> int:
     return 0 if ok else 1
 
 
+def cmd_search(args: argparse.Namespace) -> int:
+    client = ActiveMemoryClient.from_env()
+    try:
+        method = client.hybrid_search if args.hybrid else client.search
+        result = method(
+            args.query,
+            tenant_id=args.tenant_id,
+            namespace=args.namespace,
+            scope=args.scope,
+            memory_type=args.memory_type,
+            limit=args.limit,
+            tags=args.tag or None,
+            space_path=args.space_path,
+        )
+    finally:
+        client.close()
+    print(json.dumps({"memories": [memory.__dict__ for memory in result.memories]}, ensure_ascii=False, indent=2, default=str))
+    return 0
+
+
+def cmd_list(args: argparse.Namespace) -> int:
+    client = ActiveMemoryClient.from_env()
+    try:
+        with client.pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT id, content, memory_type, tags, space_path, status, updated_at
+                    FROM active_memory.memories
+                    WHERE tenant_id = %s
+                      AND namespace = %s
+                      AND scope = %s
+                      AND (%s IS NULL OR memory_type = %s)
+                      AND (%s IS NULL OR status = %s)
+                    ORDER BY updated_at DESC
+                    LIMIT %s
+                    """,
+                    (
+                        args.tenant_id,
+                        args.namespace,
+                        args.scope,
+                        args.memory_type,
+                        args.memory_type,
+                        args.status,
+                        args.status,
+                        max(1, min(args.limit, 100)),
+                    ),
+                )
+                rows = cur.fetchall()
+            conn.commit()
+    finally:
+        client.close()
+    payload = {
+        "memories": [
+            {
+                "id": str(row[0]),
+                "content": row[1],
+                "memory_type": row[2],
+                "tags": row[3] or [],
+                "space_path": row[4],
+                "status": row[5],
+                "updated_at": row[6].isoformat() if row[6] else None,
+            }
+            for row in rows
+        ]
+    }
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_stats(args: argparse.Namespace) -> int:
+    client = ActiveMemoryClient.from_env()
+    try:
+        with client.pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT status, memory_type, count(*), avg(importance), avg(confidence)
+                    FROM active_memory.memories
+                    WHERE (%s IS NULL OR tenant_id = %s)
+                      AND (%s IS NULL OR namespace = %s)
+                    GROUP BY status, memory_type
+                    ORDER BY status, memory_type
+                    """,
+                    (args.tenant_id, args.tenant_id, args.namespace, args.namespace),
+                )
+                rows = cur.fetchall()
+            conn.commit()
+    finally:
+        client.close()
+    print(
+        json.dumps(
+            {
+                "groups": [
+                    {
+                        "status": row[0],
+                        "memory_type": row[1],
+                        "count": int(row[2]),
+                        "avg_importance": float(row[3]) if row[3] is not None else None,
+                        "avg_confidence": float(row[4]) if row[4] is not None else None,
+                    }
+                    for row in rows
+                ]
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0
+
+
+def cmd_categories(args: argparse.Namespace) -> int:
+    print(
+        json.dumps(
+            {
+                "memory_types": ["fact", "preference", "task", "note", "decision", "entity", "policy", "requirement"],
+                "recommended": {
+                    "fact": "Stable user, product, or domain fact.",
+                    "preference": "User or agent preference.",
+                    "task": "Task state or follow-up.",
+                    "note": "General observation.",
+                    "decision": "Decision, rationale, or tradeoff.",
+                    "entity": "Named person, system, account, project, or object.",
+                },
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="vexdb-memory")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -499,6 +631,35 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--query", default="database-native intelligent memory semantic deduplication")
     p.set_defaults(func=cmd_smoke_test)
+
+    p = sub.add_parser("search", help="search memories from the CLI")
+    p.add_argument("query")
+    p.add_argument("--tenant-id", default="default")
+    p.add_argument("--namespace", default="default")
+    p.add_argument("--scope", default="global")
+    p.add_argument("--memory-type")
+    p.add_argument("--limit", type=int, default=5)
+    p.add_argument("--tag", action="append")
+    p.add_argument("--space-path")
+    p.add_argument("--hybrid", action=argparse.BooleanOptionalAction, default=True)
+    p.set_defaults(func=cmd_search)
+
+    p = sub.add_parser("list", help="list recent memories")
+    p.add_argument("--tenant-id", default="default")
+    p.add_argument("--namespace", default="default")
+    p.add_argument("--scope", default="global")
+    p.add_argument("--memory-type")
+    p.add_argument("--status", default="active")
+    p.add_argument("--limit", type=int, default=25)
+    p.set_defaults(func=cmd_list)
+
+    p = sub.add_parser("stats", help="summarize memory counts by status and type")
+    p.add_argument("--tenant-id")
+    p.add_argument("--namespace")
+    p.set_defaults(func=cmd_stats)
+
+    p = sub.add_parser("categories", help="print supported memory categories")
+    p.set_defaults(func=cmd_categories)
 
     p = sub.add_parser(
         "conflict-decay-test",
