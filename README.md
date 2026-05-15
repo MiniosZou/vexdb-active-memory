@@ -142,6 +142,25 @@ flowchart LR
 - `active_memory.memory_spaces`
 - `active_memory.policies`
 
+
+## 为什么不用 Mem0？
+
+Mem0 是当前最流行的 Agent 记忆框架（2024年完成5000万美金C轮融资）。它的方案是 Python 中间件层实现记忆管理。VexDB Active Memory 选择了不同的路径：把记忆管理下沉到数据库内核。
+
+核心区别：
+
+| 维度 | Mem0（应用层） | VexDB Active Memory（数据库层） |
+|------|--------------|-------------------------------|
+| 去重机制 | Python 层 check-then-write | SQL 函数原子执行 |
+| 多Agent并发 | 容易出现 TOCTOU 竞态 | 事务 + advisory lock |
+| 冲突裁决 | LLM 在 Python 层判断 | 数据库函数原子裁决 |
+| 审计追踪 | 分散日志 | 事件表 + 版本表 |
+| 框架绑定 | 绑定 Mem0 SDK | MCP/SDK/REST 多端接入 |
+| 部署复杂度 | Agent框架 + 向量库 + 记忆中间件 | 一个数据库搞定 |
+
+详细对比见[这篇深度文章](https://ainocode.cn)（即将发布）。
+
+
 ## 快速开始
 
 ### 1. 启动 VexDB
