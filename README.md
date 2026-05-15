@@ -12,7 +12,7 @@ VexDB Active Memory 把长期记忆从“应用层中间件”下沉到 VexDB �
 ![VexDB](https://img.shields.io/badge/VexDB-floatvector-green)
 ![MCP](https://img.shields.io/badge/MCP-stdio-purple)
 ![Tests](https://img.shields.io/badge/tests-64%20passed-brightgreen)
-![License](https://img.shields.io/badge/license-Proprietary-lightgrey)
+![License](https://img.shields.io/badge/license-Apache--2.0-green)
 
 ## 为什么需要它
 
@@ -280,14 +280,14 @@ vexdb-memory categories
 
 ```bash
 PYTHONPATH=python python -m vexdb_active_memory.cli openclaw-install-command \
-  --command /mnt/d/codex/vexdb-active-memory/scripts/openclaw-vexdb-memory-mcp.sh
+  --command /path/to/scripts/openclaw-vexdb-memory-mcp.sh
 ```
 
 生成 Hermes 安装命令：
 
 ```bash
 PYTHONPATH=python python -m vexdb_active_memory.cli hermes-install-command \
-  --command /mnt/d/codex/vexdb-active-memory/scripts/openclaw-vexdb-memory-mcp.sh \
+  --command /path/to/scripts/openclaw-vexdb-memory-mcp.sh \
   --env-file ~/.hermes/credentials/vexdb-active-memory.env
 ```
 

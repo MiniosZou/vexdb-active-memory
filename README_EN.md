@@ -13,7 +13,8 @@ new memory is duplicate, conflicting, stale, or worth keeping.
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
 ![VexDB](https://img.shields.io/badge/VexDB-vector%20database-green)
 ![MCP](https://img.shields.io/badge/MCP-stdio-purple)
-![Tests](https://img.shields.io/badge/tests-50%20passed-brightgreen)
+![Tests](https://img.shields.io/badge/tests-64%20passed-brightgreen)
+![License](https://img.shields.io/badge/license-Apache--2.0-green)
 
 ## Why This Exists
 
@@ -95,6 +96,9 @@ The stdio MCP server exposes:
 - `vexdb_memory_apply_decay`
 - `vexdb_memory_graph`
 - `vexdb_memory_conflict_report`
+- `vexdb_memory_hybrid_search`
+- `vexdb_memory_auto_capture`
+- `vexdb_memory_auto_recall`
 
 ## Quick Start
 
@@ -203,14 +207,14 @@ Generate OpenClaw setup commands:
 
 ```bash
 PYTHONPATH=python python -m vexdb_active_memory.cli openclaw-install-command \
-  --command /mnt/d/codex/vexdb-active-memory/scripts/openclaw-vexdb-memory-mcp.sh
+  --command /path/to/scripts/openclaw-vexdb-memory-mcp.sh
 ```
 
 Generate Hermes setup commands:
 
 ```bash
 PYTHONPATH=python python -m vexdb_active_memory.cli hermes-install-command \
-  --command /mnt/d/codex/vexdb-active-memory/scripts/openclaw-vexdb-memory-mcp.sh \
+  --command /path/to/scripts/openclaw-vexdb-memory-mcp.sh \
   --env-file ~/.hermes/credentials/vexdb-active-memory.env
 ```
 
